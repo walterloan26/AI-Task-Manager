@@ -1,23 +1,77 @@
 import { NextResponse } from "next/server"
+import OpenAI from "openai"
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+})
 
 export async function POST(req: Request) {
+  try {
+    // 1. Parse request
     const { task } = await req.json()
 
-    if (!task) {
-        return NextResponse.json({ error: "task required" }, { status: 400 })
+    if (!task || typeof task !== "string") {
+      return NextResponse.json(
+        { error: "Invalid task input" },
+        { status: 400 }
+      )
     }
-    // TEMP fake response (safe transition)
-    const subtasks = [
-        {
-            title: "Analyze task",
-            description: "Understand scope and constraints",
-            estimateMinutes: 10,
-        },
-        {
-            title: "Break into steps",
-            description: "Divide work into actionable parts",
-            estimateMinutes: 20,
-        },
-    ]
+
+    // 2. Build prompt
+    const prompt = `
+Break down the following task into subtasks.
+
+Rules:
+- Respond with ONLY valid JSON
+- Do NOT use markdown
+- Return an array of objects with:
+  - title (string)
+  - description (string)
+  - estimateMinutes (number)
+
+Task:
+${task}
+`
+
+    // 3. Call OpenAI
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+    })
+
+    // 4. Extract and clean response
+    const raw = completion.choices[0].message.content || "[]"
+
+    const cleaned = raw
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim()
+
+    // 5. Parse JSON (this is the most fragile part)
+    let subtasks
+
+    try {
+      subtasks = JSON.parse(cleaned)
+    } catch (parseError) {
+      console.error("AI returned invalid JSON:", cleaned)
+
+      return NextResponse.json(
+        { error: "AI response could not be parsed" },
+        { status: 500 }
+      )
+    }
+
+    // 6. Success response
     return NextResponse.json({ subtasks })
+
+  } catch (error) {
+    // 7. Catch ANY unexpected failure
+    console.error("AI breakdown API error:", error)
+
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    )
+  }
 }
