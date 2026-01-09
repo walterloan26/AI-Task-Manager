@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Subtask } from "./types/subtask";
 import SubtaskCard from "./components/subtaskCard";
 import Image from "next/image";
+import { POST } from "./api/breakdown/route";
 
 const MOCK_SUBTASKS: Subtask [] = [
   {
@@ -36,15 +37,26 @@ export default function HomePage() {
   const [subtasks, setSubtasks] = useState<Subtask[]>([])
   const [loading, setLoading] = useState(false)
 
-  const handleBreakdown = () => {
+  const handleBreakdown = async () => {
     setLoading(true)
     setSubtasks([])
 
-    setTimeout(() => {
-      setSubtasks(MOCK_SUBTASKS)
+    try {
+      const res = await fetch("./api/breakdown", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task }),
+      })
+
+      const data = await res.json()
+      setSubtasks(data.subtasks)
+    } catch (err) {
+      console.error(err)
+    } finally {
       setLoading(false)
-    }, 1200)
+    }
   }
+  
   const updateSubtask = (index: number, updated: Subtask) => {
     const copy = [...subtasks]
     copy[index] = updated
