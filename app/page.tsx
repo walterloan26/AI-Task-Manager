@@ -56,7 +56,7 @@ export default function HomePage() {
       setLoading(false)
     }
   }
-  
+
   const updateSubtask = (index: number, updated: Subtask) => {
     const copy = [...subtasks]
     copy[index] = updated
@@ -66,33 +66,35 @@ export default function HomePage() {
     setSubtasks(subtasks.filter((_, i) => i!==index))
   }
   return (
-    <main className="max-w-2xl mx-auto p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">
+    <main className="max-w-md mx-auto px-4 py-5 space-y-6">
+      <h1 className="text-xl font-semibold tracking-tight">
         AI Task Breakdown
       </h1>
+      <p className="text-sm text-gray-500">
+        Turn a task into clear, actionable steps
+      </p>
       <textarea
-        className="w-full border p-3 rounded"
-        rows={4}
-        placeholder="Describe a task you want to break down..."
+        className="w-full border border-gray-300 rounded-lg p-4 text-base resize-none focus:outline-none focus:ring-2 focus:ring-black"
+        rows={5}
+        placeholder="Describe a task you want to break down…"
         value={task}
         onChange={(e) => setTask(e.target.value)}
+        disabled={loading}
       />
       <button
-        className="bg-black text-white px-4 py-2 rounded disabled:opacity-50"
+        className="w-full bg-black text-white py-3 rounded-lg text-base font-medium disabled:opacity-50"
         disabled={!task || loading}
         onClick={handleBreakdown}
       >
-        {loading ? "Breaking down..." : "Break down with AI"}
+        {loading ? "Breaking down…" : "Break down with AI"}
       </button>
       {subtasks.length > 0 && (
-        <div className="space-y-4">
+        <div className="space-y-3 pt-2">
           {subtasks.map((subtask, index) => (
             <SubtaskCard
               key={index}
               subtask={subtask}
-              onChange={(updated) =>
-                updateSubtask(index, updated)
-              }
+              onChange={(updated) => updateSubtask(index, updated)}
               onDelete={() => deleteSubtask(index)}
             />
           ))}
