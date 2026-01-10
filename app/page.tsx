@@ -1,14 +1,26 @@
 "use client"
 
-import { useState } from "react";
+import { useState, useEffect } from "react"
 import { Subtask } from "./types/subtask";
 import SubtaskCard from "./components/subtaskCard";
+
 import Image from "next/image";
+
+
 
 export default function HomePage() {
   const [task, setTask] = useState("")
   const [subtasks, setSubtasks] = useState<Subtask[]>([])
   const [loading, setLoading] = useState(false)
+  const [tasks, setTasks] = useState<any[]>([])
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch("/api/breakdown")
+      .then(res => res.json())
+      .then(data => setTasks(data.tasks))
+      .catch(console.error)
+  }, [])
 
   const handleBreakdown = async () => {
     setLoading(true)
@@ -22,7 +34,11 @@ export default function HomePage() {
       })
 
       const data = await res.json()
+
+      setTasks(prev => [data, ...prev])
+      setActiveTaskId(data.id)
       setSubtasks(data.subtasks)
+
     } catch (err) {
       console.error(err)
     } finally {
@@ -46,6 +62,28 @@ export default function HomePage() {
       <p className="text-sm text-gray-500">
         Turn a task into clear, actionable steps
       </p>
+      {tasks.length > 0 && (
+        <div className="space-y-2">
+          <h2 className="text-sm font-medium text-gray-500">Your Tasks</h2>
+          {tasks.map(t => (
+            <button
+              key={t.id}
+              onClick={() => {
+                setActiveTaskId(t.id)
+                setSubtasks(t.subtasks)
+              }}
+              className={`w-full text-left px-3 py-2 rounded-md text-sm border ${
+                t.id === activeTaskId
+                  ? "bg-black text-white"
+                  : "bg-white hover:bg-gray-50"
+              }`}
+            >
+              {t.task}
+            </button>
+          ))}
+        </div>
+      )}
+
       <textarea
         className="w-full border border-gray-300 rounded-lg p-4 text-base resize-none focus:outline-none focus:ring-2 focus:ring-black"
         rows={5}

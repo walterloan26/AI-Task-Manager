@@ -5,6 +5,17 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
 
+const tasks: {
+      id: string
+      task: string
+      subtasks: {
+        title: string
+        description: string
+        estimateMinutes: number
+      }[]
+      createdAt: string
+    }[] = []
+
 export async function POST(req: Request) {
   try {
     // 1. Parse request
@@ -39,17 +50,6 @@ ${task}
       messages: [{ role: "user", content: prompt }],
       temperature: 0.3,
     })
-
-    const tasks: {
-      id: string
-      task: string
-      subtasks: {
-        title: string
-        description: string
-        estimateMinutes: number
-      }[]
-      createdAt: string
-    }[] = []
 
     // 4. Extract and clean response
     const raw = completion.choices[0].message.content || "[]"
@@ -96,3 +96,8 @@ ${task}
     )
   }
 }
+
+export async function GET() {
+  return NextResponse.json({ tasks })
+}
+
