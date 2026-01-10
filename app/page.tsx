@@ -3,9 +3,8 @@
 import { useState, useEffect } from "react"
 import { Subtask } from "./types/subtask";
 import SubtaskCard from "./components/subtaskCard";
-
+import { useRef } from "react"
 import Image from "next/image";
-
 
 
 export default function HomePage() {
@@ -14,6 +13,10 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false)
   const [tasks, setTasks] = useState<any[]>([])
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const saveTimeout = useRef<NodeJS.Timeout | null>(null)
+
 
   useEffect(() => {
     fetch("/api/breakdown")
@@ -46,14 +49,58 @@ export default function HomePage() {
     }
   }
 
+    const saveSubtasks = (updated: Subtask[]) => {
+    if (!activeTaskId) return
+
+    if (saveTimeout.current) {
+      clearTimeout(saveTimeout.current)
+    }
+
+    saveTimeout.current = setTimeout(async () => {
+      try {
+        setSaving(true)
+        await fetch(`/api/breakdown?id=${activeTaskId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subtasks: updated }),
+        })
+      } catch (err) {
+        console.error("Failed to save subtasks", err)
+      } finally {
+        setSaving(false)
+      }
+    }, 500)
+  }
+  const updateTaskInList = (updatedSubtasks: Subtask[]) => {
+    if (!activeTaskId) return
+
+    setTasks(prev =>
+      prev.map(task =>
+        task.id === activeTaskId
+          ? { ...task, subtasks: updatedSubtasks }
+          : task
+      )
+    )
+  }
+
+
   const updateSubtask = (index: number, updated: Subtask) => {
     const copy = [...subtasks]
     copy[index] = updated
+
     setSubtasks(copy)
+    updateTaskInList(copy)
+    saveSubtasks(copy)
   }
+
   const deleteSubtask = (index: number) => {
-    setSubtasks(subtasks.filter((_, i) => i!==index))
+    const updated = subtasks.filter((_, i) => i !== index)
+
+    setSubtasks(updated)
+    updateTaskInList(updated)
+    saveSubtasks(updated)
   }
+
   return (
     <main className="max-w-md mx-auto px-4 py-5 space-y-6">
       <h1 className="text-xl font-semibold tracking-tight">
@@ -69,9 +116,14 @@ export default function HomePage() {
             <button
               key={t.id}
               onClick={() => {
+                if (saveTimeout.current) {
+                  clearTimeout(saveTimeout.current)
+                }
+
                 setActiveTaskId(t.id)
                 setSubtasks(t.subtasks)
               }}
+
               className={`w-full text-left px-3 py-2 rounded-md text-sm border ${
                 t.id === activeTaskId
                   ? "bg-black text-white"
@@ -99,6 +151,11 @@ export default function HomePage() {
       >
         {loading ? "Breaking down…" : "Break down with AI"}
       </button>
+      {activeTaskId && (
+        <p className="text-xs text-gray-400">
+          {saving ? "Saving changes…" : "All changes saved"}
+        </p>
+      )}
       {subtasks.length > 0 && (
         <div className="space-y-3 pt-2">
           {subtasks.map((subtask, index) => (
