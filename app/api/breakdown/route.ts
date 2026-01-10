@@ -40,6 +40,17 @@ ${task}
       temperature: 0.3,
     })
 
+    const tasks: {
+      id: string
+      task: string
+      subtasks: {
+        title: string
+        description: string
+        estimateMinutes: number
+      }[]
+      createdAt: string
+    }[] = []
+
     // 4. Extract and clean response
     const raw = completion.choices[0].message.content || "[]"
 
@@ -63,7 +74,17 @@ ${task}
     }
 
     // 6. Success response
-    return NextResponse.json({ subtasks })
+    const newTask = {
+      id: crypto.randomUUID(),
+      task,
+      subtasks,
+      createdAt: new Date().toISOString(),
+    }
+
+    tasks.push(newTask)
+
+    // 6. Success response
+    return NextResponse.json(newTask, { status: 201 })
 
   } catch (error) {
     // 7. Catch ANY unexpected failure
