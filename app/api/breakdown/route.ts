@@ -1,24 +1,15 @@
 import { NextResponse } from "next/server"
 import OpenAI from "openai"
+import { prisma } from "@/lib/prisma"
+
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
 
-const tasks: {
-      id: string
-      task: string
-      subtasks: {
-        title: string
-        description: string
-        estimateMinutes: number
-      }[]
-      createdAt: string
-    }[] = []
-
 export async function POST(req: Request) {
   try {
-    // 1. Parse request
+    // 1. Parse & validate input
     const { task } = await req.json()
 
     if (!task || typeof task !== "string") {
@@ -51,45 +42,52 @@ ${task}
       temperature: 0.3,
     })
 
-    // 4. Extract and clean response
-    const raw = completion.choices[0].message.content || "[]"
+    const raw = completion.choices[0].message.content ?? "[]"
 
     const cleaned = raw
       .replace(/```json/g, "")
       .replace(/```/g, "")
       .trim()
 
-    // 5. Parse JSON (this is the most fragile part)
-    let subtasks
+    // 4. Parse AI JSON
+    let subtasks: {
+      title: string
+      description: string
+      estimateMinutes: number
+    }[]
 
     try {
       subtasks = JSON.parse(cleaned)
-    } catch (parseError) {
-      console.error("AI returned invalid JSON:", cleaned)
-
+    } catch {
+      console.error("Invalid AI JSON:", cleaned)
       return NextResponse.json(
         { error: "AI response could not be parsed" },
         { status: 500 }
       )
     }
 
-    // 6. Success response
-    const newTask = {
-      id: crypto.randomUUID(),
-      task,
-      subtasks,
-      createdAt: new Date().toISOString(),
-    }
+    // 5. Create task ONCE via Prisma
+    const createdTask = await prisma.task.create({
+      data: {
+        task,
+        subtasks: {
+          create: subtasks.map(s => ({
+            title: s.title,
+            description: s.description,
+            estimateMinutes: s.estimateMinutes,
+          })),
+        },
+      },
+      include: {
+        subtasks: true,
+      },
+    })
 
-    tasks.push(newTask)
-
-    // 6. Success response
-    return NextResponse.json(newTask, { status: 201 })
+    // 6. Return Prisma result
+    return NextResponse.json(createdTask, { status: 201 })
 
   } catch (error) {
-    // 7. Catch ANY unexpected failure
-    console.error("AI breakdown API error:", error)
-
+    console.error("POST /api/breakdown error:", error)
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
@@ -97,9 +95,20 @@ ${task}
   }
 }
 
+
 export async function GET() {
+  const tasks = await prisma.task.findMany({
+    orderBy: {
+      createdAt: "desc",
+    },
+    include: {
+      subtasks: true,
+    },
+  })
+
   return NextResponse.json({ tasks })
 }
+
 
 export async function PATCH(req: Request) {
   try {
@@ -107,41 +116,42 @@ export async function PATCH(req: Request) {
     const id = searchParams.get("id")
 
     if (!id) {
-      return NextResponse.json(
-        { error: "Task id is required" },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: "Task id is required" }, { status: 400 })
     }
 
     const body = await req.json()
     const { subtasks } = body
 
     if (!Array.isArray(subtasks)) {
-      return NextResponse.json(
-        { error: "Invalid subtasks payload" },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: "Invalid subtasks payload" }, { status: 400 })
     }
 
-    const task = tasks.find(t => t.id === id)
+    // 1️⃣ Delete existing subtasks for the task
+    await prisma.subtask.deleteMany({
+      where: { taskId: id },
+    })
 
-    if (!task) {
-      return NextResponse.json(
-        { error: "Task not found" },
-        { status: 404 }
-      )
-    }
+    // 2️⃣ Create the new subtasks
+    const updatedTask = await prisma.task.update({
+      where: { id },
+      data: {
+        subtasks: {
+          create: subtasks.map(s => ({
+            title: s.title,
+            description: s.description,
+            estimateMinutes: s.estimateMinutes,
+          })),
+        },
+      },
+      include: { subtasks: true },
+    })
 
-    task.subtasks = subtasks
-
-    return NextResponse.json(task)
+    return NextResponse.json(updatedTask)
   } catch (error) {
     console.error("PATCH /api/breakdown error:", error)
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
+
 
 
