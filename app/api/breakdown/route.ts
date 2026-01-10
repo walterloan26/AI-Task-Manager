@@ -101,3 +101,47 @@ export async function GET() {
   return NextResponse.json({ tasks })
 }
 
+export async function PATCH(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url)
+    const id = searchParams.get("id")
+
+    if (!id) {
+      return NextResponse.json(
+        { error: "Task id is required" },
+        { status: 400 }
+      )
+    }
+
+    const body = await req.json()
+    const { subtasks } = body
+
+    if (!Array.isArray(subtasks)) {
+      return NextResponse.json(
+        { error: "Invalid subtasks payload" },
+        { status: 400 }
+      )
+    }
+
+    const task = tasks.find(t => t.id === id)
+
+    if (!task) {
+      return NextResponse.json(
+        { error: "Task not found" },
+        { status: 404 }
+      )
+    }
+
+    task.subtasks = subtasks
+
+    return NextResponse.json(task)
+  } catch (error) {
+    console.error("PATCH /api/breakdown error:", error)
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    )
+  }
+}
+
+
