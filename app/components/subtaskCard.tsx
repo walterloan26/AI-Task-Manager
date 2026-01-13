@@ -1,61 +1,76 @@
-"use client"
+"use client";
 
-import { UiSubtask } from "../types/subtask"
-import { motion } from "framer-motion"
+import { UiSubtask } from "../types/subtask";
+import { motion } from "framer-motion";
+import { useState } from "react";
 
 interface Props {
-  subtask: UiSubtask
-  onChange: (updated: UiSubtask) => void
-  onDelete: () => void
+  subtask: UiSubtask;
+  onChange: (updated: UiSubtask) => void;
+  onDelete: () => void;
 }
 
 export default function SubtaskCard({ subtask, onChange, onDelete }: Props) {
+  const [focused, setFocused] = useState(false);
+
   return (
     <motion.div
       layout
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -6 }}
-      transition={{ duration: 0.18, ease: "easeOut" }}
-      className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3 shadow-sm"
+      transition={{ duration: 0.2 }}
+      className={`rounded-2xl border bg-white p-4 space-y-3 transition
+        ${focused ? "border-gray-900 shadow-sm" : "border-gray-200"}
+      `}
     >
+      {/* Title */}
       <input
-        className="w-full bg-white border rounded-md px-3 py-2 text-sm"
         value={subtask.title}
-        onChange={e =>
+        placeholder="Subtask title"
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onChange={(e) =>
           onChange({ ...subtask, title: e.target.value })
         }
+        className="w-full text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none"
       />
 
+      {/* Description */}
       <textarea
-        className="w-full bg-white border rounded-md px-3 py-2 text-sm resize-none"
-        rows={3}
         value={subtask.description}
-        onChange={e =>
+        placeholder="Details"
+        rows={2}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onChange={(e) =>
           onChange({ ...subtask, description: e.target.value })
         }
+        className="w-full resize-none text-sm text-gray-600 placeholder-gray-400 focus:outline-none"
       />
 
-      <div className="flex justify-between items-center">
+      {/* Footer */}
+      <div className="flex items-center justify-between pt-1">
         <input
           type="number"
-          className="w-20 bg-white border rounded-md px-2 py-1 text-sm"
+          min={0}
           value={subtask.estimateMinutes}
-          onChange={e =>
+          onChange={(e) =>
             onChange({
               ...subtask,
               estimateMinutes: Number(e.target.value),
             })
           }
+          className="w-20 text-xs text-gray-600 border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:border-gray-900"
         />
 
         <button
           onClick={onDelete}
-          className="text-xs text-red-500 font-medium"
+          className="text-xs text-gray-400 hover:text-red-500 transition"
         >
           Delete
         </button>
       </div>
     </motion.div>
-  )
+  );
 }

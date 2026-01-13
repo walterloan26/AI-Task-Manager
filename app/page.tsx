@@ -162,7 +162,7 @@ export default function HomePage() {
         )}
       </AnimatePresence>
 
-      <section className="space-y-3">
+      <section className="space-y-4">
         <AnimatePresence>
           {subtasks.map(s => (
             <SubtaskCard
