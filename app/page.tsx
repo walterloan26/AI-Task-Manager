@@ -113,22 +113,28 @@ export default function HomePage() {
             <button
               key={t.id}
               onClick={() => {
-                // 🔒 reset hydration when switching tasks
-                hasHydrated.current = false
-                setActiveTaskId(t.id)
-                setSubtasks(toUi(t.subtasks))
+                hasHydrated.current = false;
+                setActiveTaskId(t.id);
+                setSubtasks(toUi(t.subtasks));
               }}
-              className={`w-full text-left px-3 py-2 rounded-md text-sm border transition ${
-                t.id === activeTaskId
-                  ? "bg-gray-900 text-white border-gray-900"
+              aria-pressed={t.id === activeTaskId}
+              className={`w-full text-left px-4 py-2 rounded-lg text-sm border transition
+                ${t.id === activeTaskId
+                  ? "bg-gray-900 text-white border-gray-900 shadow-sm"
                   : "bg-white border-gray-200 hover:bg-gray-50"
-              }`}
+                }`}
             >
-              {t.task}
+            {t.task}
             </button>
           ))}
-        </section>
-      )}
+
+    {activeTaskId && subtasks.length === 0 && !loading && (
+      <p className="text-sm text-gray-400 text-center py-2">
+        No subtasks yet
+      </p>
+    )}
+  </section>
+)}
 
       <textarea
         rows={4}
@@ -146,24 +152,28 @@ export default function HomePage() {
         {loading ? "Thinking…" : "Break down task"}
       </button>
 
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         {activeTaskId && (
-          <motion.p
+          <motion.div
             key={saving ? "saving" : "saved"}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className={`text-xs ${
-              saving ? "text-blue-600" : "text-gray-400"
-            }`}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.2 }}
+            className="text-xs text-gray-400"
           >
-            {saving ? "Saving changes…" : "All changes saved"}
-          </motion.p>
+            {saving ? "Saving…" : "Saved"}
+          </motion.div>
         )}
       </AnimatePresence>
 
-      <section className="space-y-4">
-        <AnimatePresence>
+
+      <section 
+        className={`space-y-3 transition-opacity ${
+          saving ? "opacity-80" : "opacity-100"
+        }`}
+      >
+        <AnimatePresence mode="popLayout">
           {subtasks.map(s => (
             <SubtaskCard
               key={s._uiId}
