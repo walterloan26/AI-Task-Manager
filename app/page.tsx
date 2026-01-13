@@ -1,173 +1,189 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Subtask } from "./types/subtask";
-import SubtaskCard from "./components/subtaskCard";
-import { useRef } from "react"
-import Image from "next/image";
-
+import { useEffect, useRef, useState } from "react"
+import SubtaskCard from "./components/subtaskCard"
+import { PersistedSubtask, UiSubtask } from "./types/subtask"
+import { AnimatePresence, motion } from "framer-motion"
 
 export default function HomePage() {
   const [task, setTask] = useState("")
-  const [subtasks, setSubtasks] = useState<Subtask[]>([])
-  const [loading, setLoading] = useState(false)
   const [tasks, setTasks] = useState<any[]>([])
+  const [subtasks, setSubtasks] = useState<UiSubtask[]>([])
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const saveTimeout = useRef<NodeJS.Timeout | null>(null)
 
+  // 🔒 FIX 1: prevent autosave on initial hydration / task switch
+  const hasHydrated = useRef(false)
 
+  const toUi = (items: PersistedSubtask[]): UiSubtask[] =>
+    items.map(s => ({
+      ...s,
+      _uiId: crypto.randomUUID(),
+    }))
+
+  const toPersisted = (items: UiSubtask[]): PersistedSubtask[] =>
+    items.map(({ _uiId, ...rest }) => rest)
+
+  // Load tasks on boot
   useEffect(() => {
     fetch("/api/breakdown")
       .then(res => res.json())
       .then(data => setTasks(data.tasks))
-      .catch(console.error)
   }, [])
+
+  // 🔄 AUTOSAVE — SINGLE SOURCE OF TRUTH
+  useEffect(() => {
+    if (!activeTaskId) return
+
+    // 🛑 Skip autosave on first hydration
+    if (!hasHydrated.current) {
+      hasHydrated.current = true
+      return
+    }
+
+    if (saveTimeout.current) clearTimeout(saveTimeout.current)
+
+    saveTimeout.current = setTimeout(async () => {
+      setSaving(true)
+
+      const res = await fetch(`/api/breakdown?id=${activeTaskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subtasks: toPersisted(subtasks),
+        }),
+      })
+
+      const updatedTask = await res.json()
+
+      // 🔧 FIX 2: keep task list in sync with backend
+      setTasks(prev =>
+        prev.map(t =>
+          t.id === activeTaskId ? updatedTask : t
+        )
+      )
+
+      setSaving(false)
+    }, 500)
+
+    return () => {
+      if (saveTimeout.current) clearTimeout(saveTimeout.current)
+    }
+  }, [subtasks, activeTaskId])
 
   const handleBreakdown = async () => {
     setLoading(true)
-    setSubtasks([])
 
-    try {
-      const res = await fetch("/api/breakdown", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ task }),
-      })
+    const res = await fetch("/api/breakdown", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task }),
+    })
 
-      const data = await res.json()
+    const data = await res.json()
 
-      setTasks(prev => [data, ...prev])
-      setActiveTaskId(data.id)
-      setSubtasks(data.subtasks)
+    setTasks(prev => [data, ...prev])
+    setActiveTaskId(data.id)
 
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setLoading(false)
-    }
-  }
+    // 🔒 FIX 3: reset hydration on new task load
+    hasHydrated.current = false
+    setSubtasks(toUi(data.subtasks))
 
-    const saveSubtasks = (updated: Subtask[]) => {
-    if (!activeTaskId) return
-
-    if (saveTimeout.current) {
-      clearTimeout(saveTimeout.current)
-    }
-
-    saveTimeout.current = setTimeout(async () => {
-      try {
-        setSaving(true)
-        await fetch(`/api/breakdown?id=${activeTaskId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ subtasks: updated }),
-        })
-      } catch (err) {
-        console.error("Failed to save subtasks", err)
-      } finally {
-        setSaving(false)
-      }
-    }, 500)
-  }
-  const updateTaskInList = (updatedSubtasks: Subtask[]) => {
-    if (!activeTaskId) return
-
-    setTasks(prev =>
-      prev.map(task =>
-        task.id === activeTaskId
-          ? { ...task, subtasks: updatedSubtasks }
-          : task
-      )
-    )
-  }
-
-
-  const updateSubtask = (index: number, updated: Subtask) => {
-    const copy = [...subtasks]
-    copy[index] = updated
-
-    setSubtasks(copy)
-    updateTaskInList(copy)
-    saveSubtasks(copy)
-  }
-
-  const deleteSubtask = (index: number) => {
-    const updated = subtasks.filter((_, i) => i !== index)
-
-    setSubtasks(updated)
-    updateTaskInList(updated)
-    saveSubtasks(updated)
+    setTask("")
+    setLoading(false)
   }
 
   return (
-    <main className="max-w-md mx-auto px-4 py-5 space-y-6">
-      <h1 className="text-xl font-semibold tracking-tight">
-        AI Task Breakdown
-      </h1>
-      <p className="text-sm text-gray-500">
-        Turn a task into clear, actionable steps
-      </p>
+    <main className="max-w-md mx-auto px-4 py-10 space-y-8 bg-white">
+      <header>
+        <h1 className="text-2xl font-semibold text-gray-900">
+          AI Task Manager
+        </h1>
+        <p className="text-sm text-gray-500">
+          Break down complex work into simple steps
+        </p>
+      </header>
+
       {tasks.length > 0 && (
-        <div className="space-y-2">
-          <h2 className="text-sm font-medium text-gray-500">Your Tasks</h2>
+        <section className="space-y-2">
           {tasks.map(t => (
             <button
               key={t.id}
               onClick={() => {
-                if (saveTimeout.current) {
-                  clearTimeout(saveTimeout.current)
-                }
-
+                // 🔒 reset hydration when switching tasks
+                hasHydrated.current = false
                 setActiveTaskId(t.id)
-                setSubtasks(t.subtasks)
+                setSubtasks(toUi(t.subtasks))
               }}
-
-              className={`w-full text-left px-3 py-2 rounded-md text-sm border ${
+              className={`w-full text-left px-3 py-2 rounded-md text-sm border transition ${
                 t.id === activeTaskId
-                  ? "bg-black text-white"
-                  : "bg-white hover:bg-gray-50"
+                  ? "bg-gray-900 text-white border-gray-900"
+                  : "bg-white border-gray-200 hover:bg-gray-50"
               }`}
             >
               {t.task}
             </button>
           ))}
-        </div>
+        </section>
       )}
 
       <textarea
-        className="w-full border border-gray-300 rounded-lg p-4 text-base resize-none focus:outline-none focus:ring-2 focus:ring-black"
-        rows={5}
+        rows={4}
         placeholder="Describe a task you want to break down…"
+        className="w-full border border-gray-200 rounded-lg p-3 text-sm"
         value={task}
-        onChange={(e) => setTask(e.target.value)}
-        disabled={loading}
+        onChange={e => setTask(e.target.value)}
       />
+
       <button
-        className="w-full bg-black text-white py-3 rounded-lg text-base font-medium disabled:opacity-50"
-        disabled={!task || loading}
         onClick={handleBreakdown}
+        disabled={!task || loading}
+        className="w-full bg-gray-900 text-white rounded-lg py-2.5 text-sm font-medium"
       >
-        {loading ? "Breaking down…" : "Break down with AI"}
+        {loading ? "Thinking…" : "Break down task"}
       </button>
-      {activeTaskId && (
-        <p className="text-xs text-gray-400">
-          {saving ? "Saving changes…" : "All changes saved"}
-        </p>
-      )}
-      {subtasks.length > 0 && (
-        <div className="space-y-3 pt-2">
-          {subtasks.map((subtask, index) => (
+
+      <AnimatePresence>
+        {activeTaskId && (
+          <motion.p
+            key={saving ? "saving" : "saved"}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className={`text-xs ${
+              saving ? "text-blue-600" : "text-gray-400"
+            }`}
+          >
+            {saving ? "Saving changes…" : "All changes saved"}
+          </motion.p>
+        )}
+      </AnimatePresence>
+
+      <section className="space-y-3">
+        <AnimatePresence>
+          {subtasks.map(s => (
             <SubtaskCard
-              key={index}
-              subtask={subtask}
-              onChange={(updated) => updateSubtask(index, updated)}
-              onDelete={() => deleteSubtask(index)}
+              key={s._uiId}
+              subtask={s}
+              onChange={updated =>
+                setSubtasks(prev =>
+                  prev.map(p =>
+                    p._uiId === updated._uiId ? updated : p
+                  )
+                )
+              }
+              onDelete={() =>
+                setSubtasks(prev =>
+                  prev.filter(p => p._uiId !== s._uiId)
+                )
+              }
             />
           ))}
-        </div>
-      )}
+        </AnimatePresence>
+      </section>
     </main>
   )
 }

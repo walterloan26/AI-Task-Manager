@@ -116,42 +116,51 @@ export async function PATCH(req: Request) {
     const id = searchParams.get("id")
 
     if (!id) {
-      return NextResponse.json({ error: "Task id is required" }, { status: 400 })
+      return NextResponse.json(
+        { error: "Task id is required" },
+        { status: 400 }
+      )
     }
 
-    const body = await req.json()
-    const { subtasks } = body
+    const { subtasks } = await req.json()
 
     if (!Array.isArray(subtasks)) {
-      return NextResponse.json({ error: "Invalid subtasks payload" }, { status: 400 })
+      return NextResponse.json(
+        { error: "Invalid subtasks payload" },
+        { status: 400 }
+      )
     }
 
-    // 1️⃣ Delete existing subtasks for the task
-    await prisma.subtask.deleteMany({
-      where: { taskId: id },
-    })
+    await prisma.$transaction([
+      prisma.subtask.deleteMany({
+        where: { taskId: id },
+      }),
 
-    // 2️⃣ Create the new subtasks
-    const updatedTask = await prisma.task.update({
+      prisma.subtask.createMany({
+        data: subtasks.map(s => ({
+          taskId: id,
+          title: s.title,
+          description: s.description,
+          estimateMinutes: s.estimateMinutes,
+        })),
+      }),
+    ])
+
+    const updatedTask = await prisma.task.findUnique({
       where: { id },
-      data: {
-        subtasks: {
-          create: subtasks.map(s => ({
-            title: s.title,
-            description: s.description,
-            estimateMinutes: s.estimateMinutes,
-          })),
-        },
-      },
       include: { subtasks: true },
     })
 
     return NextResponse.json(updatedTask)
   } catch (error) {
     console.error("PATCH /api/breakdown error:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    )
   }
 }
+
 
 
 
