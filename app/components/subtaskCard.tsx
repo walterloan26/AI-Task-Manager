@@ -12,6 +12,7 @@ interface Props {
 
 export default function SubtaskCard({ subtask, onChange, onDelete }: Props) {
   const [focused, setFocused] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   return (
     <motion.div
@@ -20,16 +21,19 @@ export default function SubtaskCard({ subtask, onChange, onDelete }: Props) {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -6 }}
       transition={{ duration: 0.2 }}
-      className={`rounded-2xl border bg-white p-4 space-y-3 transition
-        ${focused ? "border-gray-900 shadow-sm" : "border-gray-200"}
+      className={`rounded-2xl border bg-white p-4 space-y-3 transition-all
+        ${focused ? "border-gray-900 shadow-md" : "border-gray-200"}
       `}
+      onFocus={() => setFocused(true)}
+      onBlur={() => {
+        setFocused(false);
+        setConfirmDelete(false);
+      }}
     >
       {/* Title */}
       <input
         value={subtask.title}
         placeholder="Subtask title"
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
         onChange={(e) =>
           onChange({ ...subtask, title: e.target.value })
         }
@@ -41,8 +45,6 @@ export default function SubtaskCard({ subtask, onChange, onDelete }: Props) {
         value={subtask.description}
         placeholder="Details"
         rows={2}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
         onChange={(e) =>
           onChange({ ...subtask, description: e.target.value })
         }
@@ -64,12 +66,30 @@ export default function SubtaskCard({ subtask, onChange, onDelete }: Props) {
           className="w-20 text-xs text-gray-600 border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:border-gray-900"
         />
 
-        <button
-          onClick={onDelete}
-          className="text-xs text-gray-400 hover:text-red-500 transition"
-        >
-          Delete
-        </button>
+        {/* Delete */}
+        {!confirmDelete ? (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="text-xs text-gray-400 hover:text-red-500 transition"
+          >
+            Delete
+          </button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onDelete}
+              className="text-xs text-red-600 font-medium"
+            >
+              Confirm
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="text-xs text-gray-400"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
       </div>
     </motion.div>
   );
