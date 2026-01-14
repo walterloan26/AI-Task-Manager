@@ -1,0 +1,108 @@
+"use client";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { UiSubtask, PersistedSubtask } from "../types/subtask";
+
+interface Params {
+  activeTaskId: string | null;
+  subtasks: UiSubtask[];
+  toPersisted: (items: UiSubtask[]) => PersistedSubtask[];
+  onServerUpdate: (updatedTask: any) => void;
+  userEditedRef?: React.MutableRefObject<boolean>;
+}
+
+const AUTOSAVE_DELAY = 300;
+const MIN_SAVING_DURATION = 500;
+
+export function useAutosaveSubtasks({
+  activeTaskId,
+  subtasks,
+  toPersisted,
+  onServerUpdate,
+  userEditedRef,
+}: Params) {
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hydratedRef = useRef(false);
+  const lastSavedRef = useRef<string>("");
+  const pendingSnapshotRef = useRef<string | null>(null);
+  const savingStartRef = useRef<number>(0);
+
+  const [saving, setSaving] = useState(false);
+  const [hasPendingChanges, setHasPendingChanges] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const persist = useCallback(
+    (items: UiSubtask[], snapshot: string) => {
+      if (!activeTaskId || pendingSnapshotRef.current === snapshot) return;
+
+      pendingSnapshotRef.current = snapshot;
+      setHasPendingChanges(true);
+      setSaving(true);
+
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+
+      timeoutRef.current = setTimeout(async () => {
+        savingStartRef.current = Date.now();
+        setSaveError(null);
+
+        try {
+          const res = await fetch(`/api/breakdown?id=${activeTaskId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ subtasks: toPersisted(items) }),
+          });
+
+          if (!res.ok) throw new Error("Failed to save subtasks");
+
+          const updatedTask = await res.json();
+          lastSavedRef.current = snapshot;
+          pendingSnapshotRef.current = null;
+
+          onServerUpdate(updatedTask);
+
+          const elapsed = Date.now() - savingStartRef.current;
+          const remaining = MIN_SAVING_DURATION - elapsed;
+          const finishSaving = () => {
+            setSaving(false);
+            setHasPendingChanges(false);
+          };
+
+          if (remaining > 0) {
+            setTimeout(finishSaving, remaining);
+          } else {
+            finishSaving();
+          }
+        } catch (err) {
+          console.error(err);
+          setSaving(false);
+          setSaveError("Failed to save changes");
+        } finally {
+          if (userEditedRef) userEditedRef.current = false;
+        }
+      }, AUTOSAVE_DELAY);
+    },
+    [activeTaskId, onServerUpdate, toPersisted, userEditedRef]
+  );
+
+  useEffect(() => {
+    if (!activeTaskId) return;
+
+    if (!hydratedRef.current) {
+      hydratedRef.current = true;
+      lastSavedRef.current = JSON.stringify(subtasks);
+      return;
+    }
+
+    const snapshot = JSON.stringify(subtasks);
+    if (snapshot === lastSavedRef.current) return;
+
+    persist(subtasks, snapshot);
+  }, [subtasks, activeTaskId, persist]);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  return { saving, hasPendingChanges, saveError };
+}

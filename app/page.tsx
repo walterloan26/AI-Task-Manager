@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, Reorder, motion } from "framer-motion";
 import SubtaskCard from "./components/subtaskCard";
 import { PersistedSubtask, UiSubtask } from "./types/subtask";
+import { useAutosaveSubtasks } from "./hooks/useAutosaveSubtasks";
 
 export default function HomePage() {
   /* ----------------------------- State ----------------------------- */
@@ -12,11 +13,8 @@ export default function HomePage() {
   const [subtasks, setSubtasks] = useState<UiSubtask[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
 
-  /* ----------------------------- Refs ------------------------------ */
-  const saveTimeout = useRef<NodeJS.Timeout | null>(null);
-  const hasHydrated = useRef(false);
+  const userEditedRef = useRef(false); // tracks if user made edits
 
   /* ------------------------- Transformers -------------------------- */
   const toUi = useCallback(
@@ -42,55 +40,34 @@ export default function HomePage() {
       .then((data) => setTasks(data.tasks));
   }, []);
 
-  /* --------------------------- Persistence ------------------------- */
-  const saveSubtasks = useCallback(
-    async (items: UiSubtask[]) => {
-      if (!activeTaskId) return;
-
-      if (saveTimeout.current) clearTimeout(saveTimeout.current);
-
-      saveTimeout.current = setTimeout(async () => {
-        setSaving(true);
-
-        const res = await fetch(`/api/breakdown?id=${activeTaskId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ subtasks: toPersisted(items) }),
-        });
-
-        const updatedTask = await res.json();
-
-        setTasks((prev) =>
-          prev.map((t) => (t.id === activeTaskId ? updatedTask : t))
-        );
-
-        setSaving(false);
-      }, 300);
+  /* --------------------------- Autosave Hook ------------------------ */
+  const { saving, hasPendingChanges, saveError } = useAutosaveSubtasks({
+    activeTaskId,
+    subtasks,
+    toPersisted,
+    onServerUpdate: (updatedTask) => {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
+      );
     },
-    [activeTaskId, toPersisted]
-  );
-
-  useEffect(() => {
-    if (!hasHydrated.current) {
-      hasHydrated.current = true;
-      return;
-    }
-
-    saveSubtasks(subtasks);
-  }, [subtasks, saveSubtasks]);
+    userEditedRef,
+  });
 
   /* ------------------------ Subtask Actions ------------------------ */
   const updateSubtask = (updated: UiSubtask) => {
+    userEditedRef.current = true;
     setSubtasks((prev) =>
       prev.map((s) => (s._uiId === updated._uiId ? updated : s))
     );
   };
 
   const deleteSubtask = (id: string) => {
+    userEditedRef.current = true;
     setSubtasks((prev) => prev.filter((s) => s._uiId !== id));
   };
 
   const addSubtask = () => {
+    userEditedRef.current = true;
     const newSubtask: UiSubtask = {
       _uiId: crypto.randomUUID(),
       title: "",
@@ -98,7 +75,6 @@ export default function HomePage() {
       estimateMinutes: 0,
       completed: false,
     };
-
     setSubtasks((prev) => [...prev, newSubtask]);
   };
 
@@ -116,17 +92,25 @@ export default function HomePage() {
 
     setTasks((prev) => [data, ...prev]);
     setActiveTaskId(data.id);
-    hasHydrated.current = false;
+    userEditedRef.current = false;
     setSubtasks(toUi(data.subtasks));
     setTaskInput("");
     setLoading(false);
   };
 
   const selectTask = (task: any) => {
-    hasHydrated.current = false;
     setActiveTaskId(task.id);
     setSubtasks(toUi(task.subtasks));
+    userEditedRef.current = false; // selecting a task doesn't show saving
   };
+
+  /* ------------------------ Save Status --------------------------- */
+  const saveStatus = (() => {
+    if (!activeTaskId) return "idle";
+    if (saveError) return "error";
+    if (saving || hasPendingChanges) return "saving";
+    return "saved";
+  })();
 
   /* ----------------------------- UI ------------------------------- */
   return (
@@ -175,25 +159,46 @@ export default function HomePage() {
         {loading ? "Thinking…" : "Break down task"}
       </button>
 
-      {/* Saving indicator */}
+      {/* Global Save Status */}
       <AnimatePresence mode="wait">
-        {activeTaskId && (
+        {activeTaskId && saveStatus !== "idle" && (
           <motion.div
-            key={saving ? "saving" : "saved"}
+            key={saveStatus}
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.2 }}
-            className="text-xs text-gray-400"
+            className={`text-xs ${
+              saveStatus === "error" ? "text-red-500" : "text-gray-400"
+            }`}
           >
-            {saving ? "Saving…" : "Saved"}
+            {saveStatus === "saving" && "Saving…"}
+            {saveStatus === "saved" && "Saved"}
+            {saveStatus === "error" && (
+              <>
+                Error saving
+                <button
+                  onClick={() => (userEditedRef.current = true)}
+                  className="underline text-xs ml-1"
+                >
+                  Retry
+                </button>
+              </>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* Subtasks */}
       <section className="space-y-3">
-        <Reorder.Group axis="y" values={subtasks} onReorder={setSubtasks}>
+        <Reorder.Group
+          axis="y"
+          values={subtasks}
+          onReorder={(newOrder) => {
+            userEditedRef.current = true;
+            setSubtasks(newOrder);
+          }}
+        >
           {subtasks.map((s) => (
             <Reorder.Item key={s._uiId} value={s}>
               <SubtaskCard

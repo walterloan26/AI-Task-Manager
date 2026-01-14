@@ -8,9 +8,10 @@ interface Props {
   subtask: UiSubtask;
   onChange: (updated: UiSubtask) => void;
   onDelete: () => void;
+  saving?: boolean; // new prop
 }
 
-export default function SubtaskCard({ subtask, onChange, onDelete }: Props) {
+export default function SubtaskCard({ subtask, onChange, onDelete, saving }: Props) {
   /* ----------------------------- State ----------------------------- */
   const [focused, setFocused] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -46,16 +47,22 @@ export default function SubtaskCard({ subtask, onChange, onDelete }: Props) {
           className="w-4 h-4 accent-gray-900"
         />
 
-        <input
-          value={subtask.title}
-          placeholder="Subtask title"
-          onChange={(e) => update({ title: e.target.value })}
-          className={`w-full text-sm font-medium placeholder-gray-400 focus:outline-none ${
-            subtask.completed
-              ? "line-through text-gray-400"
-              : "text-gray-900"
-          }`}
-        />
+        <div className="relative w-full">
+          <input
+            value={subtask.title}
+            placeholder="Subtask title"
+            onChange={(e) => update({ title: e.target.value })}
+            className={`w-full text-sm font-medium placeholder-gray-400 focus:outline-none ${
+              subtask.completed ? "line-through text-gray-400" : "text-gray-900"
+            }`}
+          />
+          {/* Saving indicator on the right of title */}
+          {saving && (
+            <span className="absolute right-0 top-0 text-xs text-gray-500 animate-pulse">
+              Saving…
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Description */}
