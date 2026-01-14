@@ -30,6 +30,7 @@ Rules:
   - title (string)
   - description (string)
   - estimateMinutes (number)
+  - completed (boolean)
 
 Task:
 ${task}
@@ -54,6 +55,7 @@ ${task}
       title: string
       description: string
       estimateMinutes: number
+      completed: boolean
     }[]
 
     try {
@@ -75,6 +77,7 @@ ${task}
             title: s.title,
             description: s.description,
             estimateMinutes: s.estimateMinutes,
+            completed: s.completed
           })),
         },
       },
@@ -142,6 +145,7 @@ export async function PATCH(req: Request) {
           title: s.title,
           description: s.description,
           estimateMinutes: s.estimateMinutes,
+          completed: s.completed ?? false,
         })),
       }),
     ])

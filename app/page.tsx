@@ -1,157 +1,181 @@
-"use client"
+"use client";
 
-import { useEffect, useRef, useState } from "react"
-import SubtaskCard from "./components/subtaskCard"
-import { PersistedSubtask, UiSubtask } from "./types/subtask"
-import { AnimatePresence, motion } from "framer-motion"
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, Reorder, motion } from "framer-motion";
+import SubtaskCard from "./components/subtaskCard";
+import { PersistedSubtask, UiSubtask } from "./types/subtask";
 
 export default function HomePage() {
-  const [task, setTask] = useState("")
-  const [tasks, setTasks] = useState<any[]>([])
-  const [subtasks, setSubtasks] = useState<UiSubtask[]>([])
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
+  /* ----------------------------- State ----------------------------- */
+  const [taskInput, setTaskInput] = useState("");
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [subtasks, setSubtasks] = useState<UiSubtask[]>([]);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const saveTimeout = useRef<NodeJS.Timeout | null>(null)
+  /* ----------------------------- Refs ------------------------------ */
+  const saveTimeout = useRef<NodeJS.Timeout | null>(null);
+  const hasHydrated = useRef(false);
 
-  // 🔒 FIX 1: prevent autosave on initial hydration / task switch
-  const hasHydrated = useRef(false)
+  /* ------------------------- Transformers -------------------------- */
+  const toUi = useCallback(
+    (items: PersistedSubtask[]): UiSubtask[] =>
+      items.map((s) => ({
+        ...s,
+        _uiId: crypto.randomUUID(),
+        completed: s.completed ?? false,
+      })),
+    []
+  );
 
-  const toUi = (items: PersistedSubtask[]): UiSubtask[] =>
-    items.map(s => ({
-      ...s,
-      _uiId: crypto.randomUUID(),
-    }))
+  const toPersisted = useCallback(
+    (items: UiSubtask[]): PersistedSubtask[] =>
+      items.map(({ _uiId, ...rest }) => rest),
+    []
+  );
 
-  const toPersisted = (items: UiSubtask[]): PersistedSubtask[] =>
-    items.map(({ _uiId, ...rest }) => rest)
-
-  // Load tasks on boot
+  /* --------------------------- Fetching ---------------------------- */
   useEffect(() => {
     fetch("/api/breakdown")
-      .then(res => res.json())
-      .then(data => setTasks(data.tasks))
-  }, [])
+      .then((res) => res.json())
+      .then((data) => setTasks(data.tasks));
+  }, []);
 
-  // 🔄 AUTOSAVE — SINGLE SOURCE OF TRUTH
+  /* --------------------------- Persistence ------------------------- */
+  const saveSubtasks = useCallback(
+    async (items: UiSubtask[]) => {
+      if (!activeTaskId) return;
+
+      if (saveTimeout.current) clearTimeout(saveTimeout.current);
+
+      saveTimeout.current = setTimeout(async () => {
+        setSaving(true);
+
+        const res = await fetch(`/api/breakdown?id=${activeTaskId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subtasks: toPersisted(items) }),
+        });
+
+        const updatedTask = await res.json();
+
+        setTasks((prev) =>
+          prev.map((t) => (t.id === activeTaskId ? updatedTask : t))
+        );
+
+        setSaving(false);
+      }, 300);
+    },
+    [activeTaskId, toPersisted]
+  );
+
   useEffect(() => {
-    if (!activeTaskId) return
-
-    // 🛑 Skip autosave on first hydration
     if (!hasHydrated.current) {
-      hasHydrated.current = true
-      return
+      hasHydrated.current = true;
+      return;
     }
 
-    if (saveTimeout.current) clearTimeout(saveTimeout.current)
+    saveSubtasks(subtasks);
+  }, [subtasks, saveSubtasks]);
 
-    saveTimeout.current = setTimeout(async () => {
-      setSaving(true)
+  /* ------------------------ Subtask Actions ------------------------ */
+  const updateSubtask = (updated: UiSubtask) => {
+    setSubtasks((prev) =>
+      prev.map((s) => (s._uiId === updated._uiId ? updated : s))
+    );
+  };
 
-      const res = await fetch(`/api/breakdown?id=${activeTaskId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          subtasks: toPersisted(subtasks),
-        }),
-      })
+  const deleteSubtask = (id: string) => {
+    setSubtasks((prev) => prev.filter((s) => s._uiId !== id));
+  };
 
-      const updatedTask = await res.json()
+  const addSubtask = () => {
+    const newSubtask: UiSubtask = {
+      _uiId: crypto.randomUUID(),
+      title: "",
+      description: "",
+      estimateMinutes: 0,
+      completed: false,
+    };
 
-      // 🔧 FIX 2: keep task list in sync with backend
-      setTasks(prev =>
-        prev.map(t =>
-          t.id === activeTaskId ? updatedTask : t
-        )
-      )
+    setSubtasks((prev) => [...prev, newSubtask]);
+  };
 
-      setSaving(false)
-    }, 500)
-
-    return () => {
-      if (saveTimeout.current) clearTimeout(saveTimeout.current)
-    }
-  }, [subtasks, activeTaskId])
-
+  /* -------------------------- Task Flow ---------------------------- */
   const handleBreakdown = async () => {
-    setLoading(true)
+    setLoading(true);
 
     const res = await fetch("/api/breakdown", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ task }),
-    })
+      body: JSON.stringify({ task: taskInput }),
+    });
 
-    const data = await res.json()
+    const data = await res.json();
 
-    setTasks(prev => [data, ...prev])
-    setActiveTaskId(data.id)
+    setTasks((prev) => [data, ...prev]);
+    setActiveTaskId(data.id);
+    hasHydrated.current = false;
+    setSubtasks(toUi(data.subtasks));
+    setTaskInput("");
+    setLoading(false);
+  };
 
-    // 🔒 FIX 3: reset hydration on new task load
-    hasHydrated.current = false
-    setSubtasks(toUi(data.subtasks))
+  const selectTask = (task: any) => {
+    hasHydrated.current = false;
+    setActiveTaskId(task.id);
+    setSubtasks(toUi(task.subtasks));
+  };
 
-    setTask("")
-    setLoading(false)
-  }
-
+  /* ----------------------------- UI ------------------------------- */
   return (
     <main className="max-w-md mx-auto px-4 py-10 space-y-8 bg-white">
       <header>
-        <h1 className="text-2xl font-semibold text-gray-900">
-          AI Task Manager
-        </h1>
+        <h1 className="text-2xl font-semibold text-gray-900">AI Task Manager</h1>
         <p className="text-sm text-gray-500">
           Break down complex work into simple steps
         </p>
       </header>
 
+      {/* Task List */}
       {tasks.length > 0 && (
         <section className="space-y-2">
-          {tasks.map(t => (
+          {tasks.map((t) => (
             <button
               key={t.id}
-              onClick={() => {
-                hasHydrated.current = false;
-                setActiveTaskId(t.id);
-                setSubtasks(toUi(t.subtasks));
-              }}
+              onClick={() => selectTask(t)}
               aria-pressed={t.id === activeTaskId}
-              className={`w-full text-left px-4 py-2 rounded-lg text-sm border transition
-                ${t.id === activeTaskId
+              className={`w-full text-left px-4 py-2 rounded-lg text-sm border transition ${
+                t.id === activeTaskId
                   ? "bg-gray-900 text-white border-gray-900 shadow-sm"
                   : "bg-white border-gray-200 hover:bg-gray-50"
-                }`}
+              }`}
             >
-            {t.task}
+              {t.task}
             </button>
           ))}
+        </section>
+      )}
 
-    {activeTaskId && subtasks.length === 0 && !loading && (
-      <p className="text-sm text-gray-400 text-center py-2">
-        No subtasks yet
-      </p>
-    )}
-  </section>
-)}
-
+      {/* New Task */}
       <textarea
         rows={4}
         placeholder="Describe a task you want to break down…"
         className="w-full border border-gray-200 rounded-lg p-3 text-sm"
-        value={task}
-        onChange={e => setTask(e.target.value)}
+        value={taskInput}
+        onChange={(e) => setTaskInput(e.target.value)}
       />
 
       <button
         onClick={handleBreakdown}
-        disabled={!task || loading}
+        disabled={!taskInput || loading}
         className="w-full bg-gray-900 text-white rounded-lg py-2.5 text-sm font-medium"
       >
         {loading ? "Thinking…" : "Break down task"}
       </button>
 
+      {/* Saving indicator */}
       <AnimatePresence mode="wait">
         {activeTaskId && (
           <motion.div
@@ -167,33 +191,27 @@ export default function HomePage() {
         )}
       </AnimatePresence>
 
-
-      <section 
-        className={`space-y-3 transition-opacity ${
-          saving ? "opacity-80" : "opacity-100"
-        }`}
-      >
-        <AnimatePresence mode="popLayout">
-          {subtasks.map(s => (
-            <SubtaskCard
-              key={s._uiId}
-              subtask={s}
-              onChange={updated =>
-                setSubtasks(prev =>
-                  prev.map(p =>
-                    p._uiId === updated._uiId ? updated : p
-                  )
-                )
-              }
-              onDelete={() =>
-                setSubtasks(prev =>
-                  prev.filter(p => p._uiId !== s._uiId)
-                )
-              }
-            />
+      {/* Subtasks */}
+      <section className="space-y-3">
+        <Reorder.Group axis="y" values={subtasks} onReorder={setSubtasks}>
+          {subtasks.map((s) => (
+            <Reorder.Item key={s._uiId} value={s}>
+              <SubtaskCard
+                subtask={s}
+                onChange={updateSubtask}
+                onDelete={() => deleteSubtask(s._uiId)}
+              />
+            </Reorder.Item>
           ))}
-        </AnimatePresence>
+        </Reorder.Group>
+
+        <button
+          onClick={addSubtask}
+          className="w-full text-left text-sm text-gray-600 hover:text-gray-900"
+        >
+          + Add Subtask
+        </button>
       </section>
     </main>
-  )
+  );
 }
