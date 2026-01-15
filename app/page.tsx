@@ -17,9 +17,16 @@ export default function HomePage() {
   const [savingSubtaskId, setSavingSubtaskId] = useState<string | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
+  const [filter, setFilter] = useState<{ completed?: boolean; priority?: "Low" | "Medium" | "High" }>({});
+  const [sort, setSort] = useState<"priority" | "completed" | null>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
 
+  const userEditedRef = useRef(false);
 
-  const userEditedRef = useRef(false); // tracks if user made edits
+  const isBaseView =
+    filter.completed === undefined &&
+    filter.priority === undefined &&
+    sort === null;
 
   /* ------------------------- Transformers -------------------------- */
   const toUi = useCallback(
@@ -28,7 +35,7 @@ export default function HomePage() {
         ...s,
         _uiId: crypto.randomUUID(),
         completed: s.completed ?? false,
-        priority: s.priority ?? "Medium", // default
+        priority: s.priority ?? "Medium",
       })),
     []
   );
@@ -57,7 +64,7 @@ export default function HomePage() {
       );
     },
     userEditedRef,
-    onSubtaskSaved: () => setSavingSubtaskId(null)
+    onSubtaskSaved: () => setSavingSubtaskId(null),
   });
 
   /* ------------------------ Subtask Actions ------------------------ */
@@ -66,7 +73,7 @@ export default function HomePage() {
     setSubtasks((prev) =>
       prev.map((s) => (s._uiId === updated._uiId ? updated : s))
     );
-    setSavingSubtaskId(updated._uiId)
+    setSavingSubtaskId(updated._uiId);
   };
 
   const deleteSubtask = (id: string) => {
@@ -75,6 +82,7 @@ export default function HomePage() {
   };
 
   const addSubtask = () => {
+    if (!activeTaskId) return;
     userEditedRef.current = true;
     const newSubtask: UiSubtask = {
       _uiId: crypto.randomUUID(),
@@ -82,24 +90,20 @@ export default function HomePage() {
       description: "",
       estimateMinutes: 0,
       completed: false,
-      priority: "Medium"
+      priority: "Medium",
     };
     setSubtasks((prev) => [...prev, newSubtask]);
   };
 
-
   /* -------------------------- Task Flow ---------------------------- */
   const handleBreakdown = async () => {
     setLoading(true);
-
     const res = await fetch("/api/breakdown", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ task: taskInput }),
     });
-
     const data = await res.json();
-
     setTasks((prev) => [data, ...prev]);
     setActiveTaskId(data.id);
     userEditedRef.current = false;
@@ -111,7 +115,7 @@ export default function HomePage() {
   const selectTask = (task: any) => {
     setActiveTaskId(task.id);
     setSubtasks(toUi(task.subtasks));
-    userEditedRef.current = false; // selecting a task doesn't show saving
+    userEditedRef.current = false;
   };
 
   /* ------------------------ Save Status --------------------------- */
@@ -122,14 +126,36 @@ export default function HomePage() {
     return "saved";
   })();
 
+  /* ------------------------ Filtering ---------------------------- */
+  const filteredSubtasks = subtasks.filter((s) => {
+    if (filter.completed !== undefined && s.completed !== filter.completed) return false;
+    if (filter.priority && s.priority !== filter.priority) return false;
+    return true;
+  });
+
+  /* ------------------------ Sorting ------------------------------- */
+  const sortedSubtasks = [...filteredSubtasks].sort((a, b) => {
+    if (!sort) return 0;
+    if (sort === "completed") {
+      return sortDirection === "asc"
+        ? Number(a.completed) - Number(b.completed)
+        : Number(b.completed) - Number(a.completed);
+    }
+    if (sort === "priority") {
+      const priorityValue = { High: 3, Medium: 2, Low: 1 };
+      return sortDirection === "asc"
+        ? priorityValue[a.priority] - priorityValue[b.priority]
+        : priorityValue[b.priority] - priorityValue[a.priority];
+    }
+    return 0;
+  });
+
   /* ----------------------------- UI ------------------------------- */
   return (
     <main className="max-w-md mx-auto px-4 py-10 space-y-8 bg-white">
       <header>
         <h1 className="text-2xl font-semibold text-gray-900">AI Task Manager</h1>
-        <p className="text-sm text-gray-500">
-          Break down complex work into simple steps
-        </p>
+        <p className="text-sm text-gray-500">Break down complex work into simple steps</p>
       </header>
 
       {/* Task List */}
@@ -155,42 +181,17 @@ export default function HomePage() {
       {/* Delete Task Button & Modal */}
       {activeTaskId && (
         <>
-          {/* Button */}
           <button
             onClick={() => setShowDeleteModal(true)}
-            className="
-              flex items-center justify-center
-              w-full sm:w-auto
-              px-4 py-2
-              mt-4
-              text-sm font-medium
-              text-red-600
-              border border-red-600
-              rounded-2xl
-              transition-all
-              hover:bg-red-50
-              focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1
-            "
+            className="flex items-center justify-center w-full sm:w-auto px-4 py-2 mt-4 text-sm font-medium text-red-600 border border-red-600 rounded-2xl transition-all hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1"
           >
             {/* Trash Icon */}
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="w-4 h-4 mr-2"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M6 18L18 6M6 6l12 12"
-              />
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
             Delete Task
           </button>
 
-          {/* Confirmation Modal */}
           <ConfirmModal
             isOpen={showDeleteModal}
             title="Delete Task?"
@@ -198,12 +199,8 @@ export default function HomePage() {
             onCancel={() => setShowDeleteModal(false)}
             onConfirm={async () => {
               try {
-                const res = await fetch(`/api/breakdown?id=${activeTaskId}`, {
-                  method: "DELETE",
-                });
+                const res = await fetch(`/api/breakdown?id=${activeTaskId}`, { method: "DELETE" });
                 if (!res.ok) throw new Error("Failed to delete task");
-
-                // Update frontend state
                 setTasks((prev) => prev.filter((t) => t.id !== activeTaskId));
                 setActiveTaskId(null);
                 setSubtasks([]);
@@ -218,8 +215,7 @@ export default function HomePage() {
         </>
       )}
 
-
-      {/* New Task */}
+      {/* New Task Input */}
       <textarea
         rows={4}
         placeholder="Describe a task you want to break down…"
@@ -245,19 +241,14 @@ export default function HomePage() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.2 }}
-            className={`text-xs ${
-              saveStatus === "error" ? "text-red-500" : "text-gray-400"
-            }`}
+            className={`text-xs ${saveStatus === "error" ? "text-red-500" : "text-gray-400"}`}
           >
             {saveStatus === "saving" && "Saving…"}
             {saveStatus === "saved" && "Saved"}
             {saveStatus === "error" && (
               <>
                 Error saving
-                <button
-                  onClick={() => (userEditedRef.current = true)}
-                  className="underline text-xs ml-1"
-                >
+                <button onClick={() => (userEditedRef.current = true)} className="underline text-xs ml-1">
                   Retry
                 </button>
               </>
@@ -266,36 +257,123 @@ export default function HomePage() {
         )}
       </AnimatePresence>
 
+      {/* Filter + Sort Toolbar */}
+      {activeTaskId && subtasks.length > 0 && (
+        <div className="flex flex-col gap-2 mb-2">
+          {/* Status + Priority Filters */}
+          <div className="flex gap-2 items-center flex-wrap">
+            <span className="text-xs text-gray-500">Show:</span>
+            <button
+              onClick={() => setFilter({ ...filter, completed: true })}
+              className={filter.completed === true ? "bg-gray-900 text-white px-2 py-1 rounded text-xs" : "px-2 py-1 border rounded text-xs"}
+            >
+              Completed
+            </button>
+            <button
+              onClick={() => setFilter({ ...filter, completed: false })}
+              className={filter.completed === false ? "bg-gray-900 text-white px-2 py-1 rounded text-xs" : "px-2 py-1 border rounded text-xs"}
+            >
+              Incomplete
+            </button>
+            <button
+              onClick={() => setFilter({ ...filter, completed: undefined })}
+              className={filter.completed === undefined ? "bg-gray-900 text-white px-2 py-1 rounded text-xs" : "px-2 py-1 border rounded text-xs"}
+            >
+              All
+            </button>
+
+            <select
+              value={filter.priority || ""}
+              onChange={(e) => setFilter((prev) => ({
+                ...prev,
+                priority: e.target.value ? (e.target.value as "Low" | "Medium" | "High") : undefined
+              }))}
+              className="px-2 py-1 border rounded text-xs"
+            >
+              <option value="">All Priorities</option>
+              <option value="High">High</option>
+              <option value="Medium">Medium</option>
+              <option value="Low">Low</option>
+            </select>
+          </div>
+
+          {/* Sorting */}
+          <div className="flex gap-2 items-center flex-wrap">
+            <span className="text-xs text-gray-500">Sort by:</span>
+            <button
+              onClick={() => setSort("completed")}
+              className={sort === "completed" ? "bg-gray-900 text-white px-2 py-1 rounded text-xs" : "px-2 py-1 border rounded text-xs"}
+            >
+              Completion
+            </button>
+            <button
+              onClick={() => setSort("priority")}
+              className={sort === "priority" ? "bg-gray-900 text-white px-2 py-1 rounded text-xs" : "px-2 py-1 border rounded text-xs"}
+            >
+              Priority
+            </button>
+            <button
+              onClick={() => setSort(null)}
+              className={sort === null ? "bg-gray-900 text-white px-2 py-1 rounded text-xs" : "px-2 py-1 border rounded text-xs"}
+            >
+              None
+            </button>
+
+            {sort && (
+              <button
+                onClick={() => setSortDirection(sortDirection === "asc" ? "desc" : "asc")}
+                className="px-2 py-1 border rounded text-xs"
+              >
+                {sortDirection === "asc" ? "↑" : "↓"}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Subtasks */}
       <section className="space-y-3">
         <Reorder.Group
           axis="y"
-          values={subtasks}
+          values={sortedSubtasks}
           onReorder={(newOrder) => {
+            if (!isBaseView) return;
             userEditedRef.current = true;
-            setSubtasks(newOrder);
+            const filteredIds = new Set(sortedSubtasks.map(s => s._uiId));
+            const reorderedFull = [
+              ...newOrder,
+              ...subtasks.filter(s => !filteredIds.has(s._uiId))
+            ];
+            setSubtasks(reorderedFull);
           }}
         >
-          {subtasks.map((s) => (
-            <Reorder.Item key={s._uiId} value={s}>
+          {sortedSubtasks.map((s) => (
+            <Reorder.Item key={s._uiId} value={s} dragListener={isBaseView} className={isBaseView ? "cursor-grab" : "cursor-default"}>
               <SubtaskCard
                 subtask={s}
                 onChange={updateSubtask}
                 onDelete={() => deleteSubtask(s._uiId)}
-                saving={s._uiId === savingSubtaskId} // <-- wired saving prop here
+                saving={s._uiId === savingSubtaskId}
               />
             </Reorder.Item>
           ))}
         </Reorder.Group>
 
-        <button
-          onClick={addSubtask}
-          className="w-full text-left text-sm text-gray-600 hover:text-gray-900"
-        >
-          + Add Subtask
-        </button>
-      </section>
+        {activeTaskId && isBaseView && (
+          <button
+            onClick={addSubtask}
+            className="w-full text-left text-sm text-gray-600 hover:text-gray-900"
+          >
+            + Add Subtask
+          </button>
+        )}
+        {activeTaskId && !isBaseView && (
+          <p className="text-xs text-gray-400 italic">
+            Clear filters and sorting to add a new subtask
+          </p>
+        )}
 
+      </section>
     </main>
   );
 }
