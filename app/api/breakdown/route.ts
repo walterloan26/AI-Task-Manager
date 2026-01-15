@@ -146,6 +146,7 @@ export async function PATCH(req: Request) {
           description: s.description,
           estimateMinutes: s.estimateMinutes,
           completed: s.completed ?? false,
+          priority: s.priority ?? "Medium"
         })),
       }),
     ])
@@ -162,6 +163,33 @@ export async function PATCH(req: Request) {
       { error: "Internal server error" },
       { status: 500 }
     )
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json(
+        { error: "Task id is required" },
+        { status: 400 }
+      );
+    }
+
+    // Delete task and all its subtasks
+    await prisma.task.delete({
+      where: { id },
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("DELETE /api/breakdown error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
 }
 

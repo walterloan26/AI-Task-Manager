@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { UiSubtask } from "../types/subtask";
+import { UiSubtask, Priority } from "../types/subtask";
 
 interface Props {
   subtask: UiSubtask;
   onChange: (updated: UiSubtask) => void;
   onDelete: () => void;
-  saving?: boolean; // new prop
+  saving?: boolean; // shows saving indicator
 }
 
 export default function SubtaskCard({ subtask, onChange, onDelete, saving }: Props) {
@@ -46,7 +46,6 @@ export default function SubtaskCard({ subtask, onChange, onDelete, saving }: Pro
           onChange={(e) => update({ completed: e.target.checked })}
           className="w-4 h-4 accent-gray-900"
         />
-
         <div className="relative w-full">
           <input
             value={subtask.title}
@@ -56,13 +55,27 @@ export default function SubtaskCard({ subtask, onChange, onDelete, saving }: Pro
               subtask.completed ? "line-through text-gray-400" : "text-gray-900"
             }`}
           />
-          {/* Saving indicator on the right of title */}
+          {/* Saving indicator */}
           {saving && (
             <span className="absolute right-0 top-0 text-xs text-gray-500 animate-pulse">
               Saving…
             </span>
           )}
         </div>
+      </div>
+
+      {/* Priority */}
+      <div className="flex items-center gap-2 pt-1">
+        <label className="text-xs text-gray-500">Priority:</label>
+        <select
+          value={subtask.priority} // use actual value
+          onChange={(e) => update({ priority: e.target.value as Priority })}
+          className="text-xs text-gray-600 border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:border-gray-900"
+        >
+          <option value="Low">Low</option>
+          <option value="Medium">Medium</option>
+          <option value="High">High</option>
+        </select>
       </div>
 
       {/* Description */}
@@ -93,10 +106,7 @@ export default function SubtaskCard({ subtask, onChange, onDelete, saving }: Pro
           </button>
         ) : (
           <div className="flex items-center gap-2">
-            <button
-              onClick={onDelete}
-              className="text-xs text-red-600 font-medium"
-            >
+            <button onClick={onDelete} className="text-xs text-red-600 font-medium">
               Confirm
             </button>
             <button

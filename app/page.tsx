@@ -5,6 +5,7 @@ import { AnimatePresence, Reorder, motion } from "framer-motion";
 import SubtaskCard from "./components/subtaskCard";
 import { PersistedSubtask, UiSubtask } from "./types/subtask";
 import { useAutosaveSubtasks } from "./hooks/useAutosaveSubtasks";
+import ConfirmModal from "./components/ConfirmModal";
 
 export default function HomePage() {
   /* ----------------------------- State ----------------------------- */
@@ -13,6 +14,10 @@ export default function HomePage() {
   const [subtasks, setSubtasks] = useState<UiSubtask[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [savingSubtaskId, setSavingSubtaskId] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+
+
 
   const userEditedRef = useRef(false); // tracks if user made edits
 
@@ -23,6 +28,7 @@ export default function HomePage() {
         ...s,
         _uiId: crypto.randomUUID(),
         completed: s.completed ?? false,
+        priority: s.priority ?? "Medium", // default
       })),
     []
   );
@@ -51,6 +57,7 @@ export default function HomePage() {
       );
     },
     userEditedRef,
+    onSubtaskSaved: () => setSavingSubtaskId(null)
   });
 
   /* ------------------------ Subtask Actions ------------------------ */
@@ -59,6 +66,7 @@ export default function HomePage() {
     setSubtasks((prev) =>
       prev.map((s) => (s._uiId === updated._uiId ? updated : s))
     );
+    setSavingSubtaskId(updated._uiId)
   };
 
   const deleteSubtask = (id: string) => {
@@ -74,9 +82,11 @@ export default function HomePage() {
       description: "",
       estimateMinutes: 0,
       completed: false,
+      priority: "Medium"
     };
     setSubtasks((prev) => [...prev, newSubtask]);
   };
+
 
   /* -------------------------- Task Flow ---------------------------- */
   const handleBreakdown = async () => {
@@ -142,6 +152,73 @@ export default function HomePage() {
         </section>
       )}
 
+      {/* Delete Task Button & Modal */}
+      {activeTaskId && (
+        <>
+          {/* Button */}
+          <button
+            onClick={() => setShowDeleteModal(true)}
+            className="
+              flex items-center justify-center
+              w-full sm:w-auto
+              px-4 py-2
+              mt-4
+              text-sm font-medium
+              text-red-600
+              border border-red-600
+              rounded-2xl
+              transition-all
+              hover:bg-red-50
+              focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1
+            "
+          >
+            {/* Trash Icon */}
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="w-4 h-4 mr-2"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+            Delete Task
+          </button>
+
+          {/* Confirmation Modal */}
+          <ConfirmModal
+            isOpen={showDeleteModal}
+            title="Delete Task?"
+            description="This task and all its subtasks will be permanently deleted. This action cannot be undone."
+            onCancel={() => setShowDeleteModal(false)}
+            onConfirm={async () => {
+              try {
+                const res = await fetch(`/api/breakdown?id=${activeTaskId}`, {
+                  method: "DELETE",
+                });
+                if (!res.ok) throw new Error("Failed to delete task");
+
+                // Update frontend state
+                setTasks((prev) => prev.filter((t) => t.id !== activeTaskId));
+                setActiveTaskId(null);
+                setSubtasks([]);
+              } catch (err) {
+                console.error(err);
+                alert("Failed to delete task");
+              } finally {
+                setShowDeleteModal(false);
+              }
+            }}
+          />
+        </>
+      )}
+
+
       {/* New Task */}
       <textarea
         rows={4}
@@ -205,6 +282,7 @@ export default function HomePage() {
                 subtask={s}
                 onChange={updateSubtask}
                 onDelete={() => deleteSubtask(s._uiId)}
+                saving={s._uiId === savingSubtaskId} // <-- wired saving prop here
               />
             </Reorder.Item>
           ))}
@@ -217,6 +295,7 @@ export default function HomePage() {
           + Add Subtask
         </button>
       </section>
+
     </main>
   );
 }

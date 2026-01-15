@@ -1,8 +1,11 @@
+export type Priority = "Low" | "Medium" | "High"
+
 export interface PersistedSubtask {
   title: string
   description: string
   estimateMinutes: number
   completed: boolean
+  priority: Priority;
 }
 
 export interface UiSubtask {
@@ -11,5 +14,6 @@ export interface UiSubtask {
   description: string;
   estimateMinutes: number;
   completed: boolean; // must exist!
+  priority: Priority;
 }
 

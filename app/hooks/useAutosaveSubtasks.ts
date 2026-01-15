@@ -8,6 +8,7 @@ interface Params {
   toPersisted: (items: UiSubtask[]) => PersistedSubtask[];
   onServerUpdate: (updatedTask: any) => void;
   userEditedRef?: React.MutableRefObject<boolean>;
+  onSubtaskSaved?: () => void;
 }
 
 const AUTOSAVE_DELAY = 300;
@@ -19,6 +20,7 @@ export function useAutosaveSubtasks({
   toPersisted,
   onServerUpdate,
   userEditedRef,
+  onSubtaskSaved
 }: Params) {
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hydratedRef = useRef(false);
@@ -64,6 +66,7 @@ export function useAutosaveSubtasks({
           const finishSaving = () => {
             setSaving(false);
             setHasPendingChanges(false);
+            if (onSubtaskSaved) onSubtaskSaved()
           };
 
           if (remaining > 0) {
