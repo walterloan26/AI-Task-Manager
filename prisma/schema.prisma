@@ -15,10 +15,15 @@ model Task {
 }
 
 model Subtask {
-  id              String @id @default(cuid())
+  id              String   @id @default(cuid())
   title           String
   description     String
   estimateMinutes Int
+  completed       Boolean  @default(false)
   taskId          String
-  task            Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task            Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
+  priority       String   @default("Medium") // must exist
 }
+

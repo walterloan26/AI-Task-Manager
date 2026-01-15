@@ -1,61 +1,123 @@
-"use client"
+"use client";
 
-import { UiSubtask } from "../types/subtask"
-import { motion } from "framer-motion"
+import { useState } from "react";
+import { motion } from "framer-motion";
+import { UiSubtask, Priority } from "../types/subtask";
 
 interface Props {
-  subtask: UiSubtask
-  onChange: (updated: UiSubtask) => void
-  onDelete: () => void
+  subtask: UiSubtask;
+  onChange: (updated: UiSubtask) => void;
+  onDelete: () => void;
+  saving?: boolean; // shows saving indicator
 }
 
-export default function SubtaskCard({ subtask, onChange, onDelete }: Props) {
+export default function SubtaskCard({ subtask, onChange, onDelete, saving }: Props) {
+  /* ----------------------------- State ----------------------------- */
+  const [focused, setFocused] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  /* ---------------------------- Helpers ---------------------------- */
+  const update = (patch: Partial<UiSubtask>) => {
+    onChange({ ...subtask, ...patch });
+  };
+
+  /* ------------------------------ UI ------------------------------- */
   return (
     <motion.div
       layout
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -6 }}
-      transition={{ duration: 0.18, ease: "easeOut" }}
-      className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3 shadow-sm"
+      transition={{ duration: 0.2 }}
+      className={`rounded-2xl border bg-white p-4 space-y-3 transition-all ${
+        focused ? "border-gray-900 shadow-md" : "border-gray-200"
+      }`}
+      onFocus={() => setFocused(true)}
+      onBlur={() => {
+        setFocused(false);
+        setConfirmDelete(false);
+      }}
     >
-      <input
-        className="w-full bg-white border rounded-md px-3 py-2 text-sm"
-        value={subtask.title}
-        onChange={e =>
-          onChange({ ...subtask, title: e.target.value })
-        }
-      />
+      {/* Completion + Title */}
+      <div className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={subtask.completed}
+          onChange={(e) => update({ completed: e.target.checked })}
+          className="w-4 h-4 accent-gray-900"
+        />
+        <div className="relative w-full">
+          <input
+            value={subtask.title}
+            placeholder="Subtask title"
+            onChange={(e) => update({ title: e.target.value })}
+            className={`w-full text-sm font-medium placeholder-gray-400 focus:outline-none ${
+              subtask.completed ? "line-through text-gray-400" : "text-gray-900"
+            }`}
+          />
+          {/* Saving indicator */}
+          {saving && (
+            <span className="absolute right-0 top-0 text-xs text-gray-500 animate-pulse">
+              Saving…
+            </span>
+          )}
+        </div>
+      </div>
 
+      {/* Priority */}
+      <div className="flex items-center gap-2 pt-1">
+        <label className="text-xs text-gray-500">Priority:</label>
+        <select
+          value={subtask.priority} // use actual value
+          onChange={(e) => update({ priority: e.target.value as Priority })}
+          className="text-xs text-gray-600 border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:border-gray-900"
+        >
+          <option value="Low">Low</option>
+          <option value="Medium">Medium</option>
+          <option value="High">High</option>
+        </select>
+      </div>
+
+      {/* Description */}
       <textarea
-        className="w-full bg-white border rounded-md px-3 py-2 text-sm resize-none"
-        rows={3}
         value={subtask.description}
-        onChange={e =>
-          onChange({ ...subtask, description: e.target.value })
-        }
+        placeholder="Details"
+        rows={2}
+        onChange={(e) => update({ description: e.target.value })}
+        className="w-full resize-none text-sm text-gray-600 placeholder-gray-400 focus:outline-none"
       />
 
-      <div className="flex justify-between items-center">
+      {/* Footer */}
+      <div className="flex items-center justify-between pt-1">
         <input
           type="number"
-          className="w-20 bg-white border rounded-md px-2 py-1 text-sm"
+          min={0}
           value={subtask.estimateMinutes}
-          onChange={e =>
-            onChange({
-              ...subtask,
-              estimateMinutes: Number(e.target.value),
-            })
-          }
+          onChange={(e) => update({ estimateMinutes: Number(e.target.value) })}
+          className="w-20 text-xs text-gray-600 border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:border-gray-900"
         />
 
-        <button
-          onClick={onDelete}
-          className="text-xs text-red-500 font-medium"
-        >
-          Delete
-        </button>
+        {!confirmDelete ? (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="text-xs text-gray-400 hover:text-red-500 transition"
+          >
+            Delete
+          </button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button onClick={onDelete} className="text-xs text-red-600 font-medium">
+              Confirm
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="text-xs text-gray-400"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
       </div>
     </motion.div>
-  )
+  );
 }
