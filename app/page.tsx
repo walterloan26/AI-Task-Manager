@@ -1,103 +1,189 @@
 "use client"
 
-import { useState } from "react";
-import { Subtask } from "./types/subtask";
-import SubtaskCard from "./components/subtaskCard";
-import Image from "next/image";
+import { useEffect, useRef, useState } from "react"
+import SubtaskCard from "./components/subtaskCard"
+import { PersistedSubtask, UiSubtask } from "./types/subtask"
+import { AnimatePresence, motion } from "framer-motion"
 
-const MOCK_SUBTASKS: Subtask [] = [
-  {
-    title: "Collect sales data",
-    description: 
-      "Export sales data from the POS system for the selected period.",
-    estimateMinutes: 30,
-  },
-  {
-    title: "Clean and validate data",
-    description: 
-      "Remove duplicates and verify totals match daily reports.",
-    estimateMinutes: 20,
-  },
-  {
-    title: "Create summary tables",
-    description:
-      "Generate tables for revenue, product categories, and trends.",
-    estimateMinutes: 25,
-  },
-  {
-    title: "Prepare presentation",
-    description:
-      "Create slides summarizing key findings and insights.",
-    estimateMinutes: 15,
-  }
-]
 export default function HomePage() {
   const [task, setTask] = useState("")
-  const [subtasks, setSubtasks] = useState<Subtask[]>([])
+  const [tasks, setTasks] = useState<any[]>([])
+  const [subtasks, setSubtasks] = useState<UiSubtask[]>([])
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
 
-  const handleBreakdown = () => {
+  const saveTimeout = useRef<NodeJS.Timeout | null>(null)
+
+  // 🔒 FIX 1: prevent autosave on initial hydration / task switch
+  const hasHydrated = useRef(false)
+
+  const toUi = (items: PersistedSubtask[]): UiSubtask[] =>
+    items.map(s => ({
+      ...s,
+      _uiId: crypto.randomUUID(),
+    }))
+
+  const toPersisted = (items: UiSubtask[]): PersistedSubtask[] =>
+    items.map(({ _uiId, ...rest }) => rest)
+
+  // Load tasks on boot
+  useEffect(() => {
+    fetch("/api/breakdown")
+      .then(res => res.json())
+      .then(data => setTasks(data.tasks))
+  }, [])
+
+  // 🔄 AUTOSAVE — SINGLE SOURCE OF TRUTH
+  useEffect(() => {
+    if (!activeTaskId) return
+
+    // 🛑 Skip autosave on first hydration
+    if (!hasHydrated.current) {
+      hasHydrated.current = true
+      return
+    }
+
+    if (saveTimeout.current) clearTimeout(saveTimeout.current)
+
+    saveTimeout.current = setTimeout(async () => {
+      setSaving(true)
+
+      const res = await fetch(`/api/breakdown?id=${activeTaskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subtasks: toPersisted(subtasks),
+        }),
+      })
+
+      const updatedTask = await res.json()
+
+      // 🔧 FIX 2: keep task list in sync with backend
+      setTasks(prev =>
+        prev.map(t =>
+          t.id === activeTaskId ? updatedTask : t
+        )
+      )
+
+      setSaving(false)
+    }, 500)
+
+    return () => {
+      if (saveTimeout.current) clearTimeout(saveTimeout.current)
+    }
+  }, [subtasks, activeTaskId])
+
+  const handleBreakdown = async () => {
     setLoading(true)
-    setSubtasks([])
 
-    setTimeout(() => {
-      setSubtasks(MOCK_SUBTASKS)
-      setLoading(false)
-    }, 1200)
+    const res = await fetch("/api/breakdown", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task }),
+    })
+
+    const data = await res.json()
+
+    setTasks(prev => [data, ...prev])
+    setActiveTaskId(data.id)
+
+    // 🔒 FIX 3: reset hydration on new task load
+    hasHydrated.current = false
+    setSubtasks(toUi(data.subtasks))
+
+    setTask("")
+    setLoading(false)
   }
-  const updateSubtask = (index: number, updated: Subtask) => {
-    const copy = [...subtasks]
-    copy[index] = updated
-    setSubtasks(copy)
-  }
-  const deleteSubtask = (index: number) => {
-    setSubtasks(subtasks.filter((_, i) => i!==index))
-  }
+
   return (
-    <main className="max-w-2xl mx-auto p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">
-        AI Task Breakdown
-      </h1>
+    <main className="max-w-md mx-auto px-4 py-10 space-y-8 bg-white">
+      <header>
+        <h1 className="text-2xl font-semibold text-gray-900">
+          AI Task Manager
+        </h1>
+        <p className="text-sm text-gray-500">
+          Break down complex work into simple steps
+        </p>
+      </header>
+
+      {tasks.length > 0 && (
+        <section className="space-y-2">
+          {tasks.map(t => (
+            <button
+              key={t.id}
+              onClick={() => {
+                // 🔒 reset hydration when switching tasks
+                hasHydrated.current = false
+                setActiveTaskId(t.id)
+                setSubtasks(toUi(t.subtasks))
+              }}
+              className={`w-full text-left px-3 py-2 rounded-md text-sm border transition ${
+                t.id === activeTaskId
+                  ? "bg-gray-900 text-white border-gray-900"
+                  : "bg-white border-gray-200 hover:bg-gray-50"
+              }`}
+            >
+              {t.task}
+            </button>
+          ))}
+        </section>
+      )}
+
       <textarea
-        className="w-full border p-3 rounded"
         rows={4}
-        placeholder="Describe a task you want to break down..."
+        placeholder="Describe a task you want to break down…"
+        className="w-full border border-gray-200 rounded-lg p-3 text-sm"
         value={task}
-        onChange={(e) => setTask(e.target.value)}
+        onChange={e => setTask(e.target.value)}
       />
+
       <button
-        className="bg-black text-white px-4 py-2 rounded disabled:opacity-50"
-        disabled={!task || loading}
         onClick={handleBreakdown}
+        disabled={!task || loading}
+        className="w-full bg-gray-900 text-white rounded-lg py-2.5 text-sm font-medium"
       >
-        {loading ? "Breaking down..." : "Break down with AI"}
+        {loading ? "Thinking…" : "Break down task"}
       </button>
-      {subtasks.length > 0 && (
-        <div className="space-y-4">
-          {subtasks.map((subtask, index) => (
+
+      <AnimatePresence>
+        {activeTaskId && (
+          <motion.p
+            key={saving ? "saving" : "saved"}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className={`text-xs ${
+              saving ? "text-blue-600" : "text-gray-400"
+            }`}
+          >
+            {saving ? "Saving changes…" : "All changes saved"}
+          </motion.p>
+        )}
+      </AnimatePresence>
+
+      <section className="space-y-3">
+        <AnimatePresence>
+          {subtasks.map(s => (
             <SubtaskCard
-              key={index}
-              subtask={subtask}
-              onChange={(updated) =>
-                updateSubtask(index, updated)
+              key={s._uiId}
+              subtask={s}
+              onChange={updated =>
+                setSubtasks(prev =>
+                  prev.map(p =>
+                    p._uiId === updated._uiId ? updated : p
+                  )
+                )
               }
-              onDelete={() => deleteSubtask(index)}
+              onDelete={() =>
+                setSubtasks(prev =>
+                  prev.filter(p => p._uiId !== s._uiId)
+                )
+              }
             />
           ))}
-        </div>
-      )}
+        </AnimatePresence>
+      </section>
     </main>
   )
 }
-// export default function Home() {
-//   return (
-//     <main className="p-6">
-//       <h1 className="text-2x1 font-bold">
-//         AI Task Manager
-//       </h1>
-//       <p className="mt-2 text-gray-600">
-//         First full-stack refresh project
-//       </p>
-//     </main>
-//   )
-// }
