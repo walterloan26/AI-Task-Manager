@@ -32,6 +32,18 @@ export function useAutosaveSubtasks({
   const [hasPendingChanges, setHasPendingChanges] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  const contentSnapshot = (items: UiSubtask[]) =>
+    JSON.stringify(
+      items.map(({ title, description, estimateMinutes, completed, priority }) => ({
+        title,
+        description,
+        estimateMinutes,
+        completed,
+        priority,
+      })
+    )
+  );
+
   const persist = useCallback(
     (items: UiSubtask[], snapshot: string) => {
       if (!activeTaskId || pendingSnapshotRef.current === snapshot) return;
@@ -47,7 +59,7 @@ export function useAutosaveSubtasks({
         setSaveError(null);
 
         try {
-          const res = await fetch(`/api/breakdown?id=${activeTaskId}`, {
+          const res = await fetch(`/api/subtasks/breakdown?id=${activeTaskId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ subtasks: toPersisted(items) }),
@@ -78,24 +90,32 @@ export function useAutosaveSubtasks({
           console.error(err);
           setSaving(false);
           setSaveError("Failed to save changes");
+          pendingSnapshotRef.current = null;
+
         } finally {
-          if (userEditedRef) userEditedRef.current = false;
+          if (userEditedRef?.current === false) {
+            lastSavedRef.current = snapshot;
+            return;
+          }
+
         }
       }, AUTOSAVE_DELAY);
     },
     [activeTaskId, onServerUpdate, toPersisted, userEditedRef]
   );
 
+
   useEffect(() => {
     if (!activeTaskId) return;
 
     if (!hydratedRef.current) {
       hydratedRef.current = true;
-      lastSavedRef.current = JSON.stringify(subtasks);
+      lastSavedRef.current = contentSnapshot(subtasks);
       return;
     }
 
-    const snapshot = JSON.stringify(subtasks);
+    const snapshot = contentSnapshot(subtasks);
+
     if (snapshot === lastSavedRef.current) return;
 
     persist(subtasks, snapshot);

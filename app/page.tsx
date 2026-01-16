@@ -40,15 +40,20 @@ export default function HomePage() {
     []
   );
 
-  const toPersisted = useCallback(
-    (items: UiSubtask[]): PersistedSubtask[] =>
-      items.map(({ _uiId, ...rest }) => rest),
-    []
-  );
+  const toPersisted = (items: UiSubtask[]) =>
+    items.map((s, index) => ({
+      id: s.id,
+      title: s.title,
+      description: s.description,
+      estimateMinutes: s.estimateMinutes,
+      completed: s.completed,
+      priority: s.priority ?? "Medium",
+  }));
+
 
   /* --------------------------- Fetching ---------------------------- */
   useEffect(() => {
-    fetch("/api/breakdown")
+    fetch("/api/subtasks/breakdown")
       .then((res) => res.json())
       .then((data) => setTasks(data.tasks));
   }, []);
@@ -98,7 +103,7 @@ export default function HomePage() {
   /* -------------------------- Task Flow ---------------------------- */
   const handleBreakdown = async () => {
     setLoading(true);
-    const res = await fetch("/api/breakdown", {
+    const res = await fetch("/api/subtasks/breakdown", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ task: taskInput }),
@@ -150,6 +155,26 @@ export default function HomePage() {
     return 0;
   });
 
+  const persistReorder = async (newOrder: UiSubtask[]) => {
+    try {
+      await fetch("/api/subtasks/reorder", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskId: activeTaskId,
+          order: newOrder.map((s, index) => ({
+            id: s.id,
+            orderIndex: index,
+          })),
+        }),
+      });
+    } catch (e) {
+      console.error("Failed to persist reorder", e);
+      // optional: toast / banner
+    }
+  };
+
+
   /* ----------------------------- UI ------------------------------- */
   return (
     <main className="max-w-md mx-auto px-4 py-10 space-y-8 bg-white">
@@ -199,7 +224,7 @@ export default function HomePage() {
             onCancel={() => setShowDeleteModal(false)}
             onConfirm={async () => {
               try {
-                const res = await fetch(`/api/breakdown?id=${activeTaskId}`, { method: "DELETE" });
+                const res = await fetch(`/api/subtasks/breakdown?id=${activeTaskId}`, { method: "DELETE" });
                 if (!res.ok) throw new Error("Failed to delete task");
                 setTasks((prev) => prev.filter((t) => t.id !== activeTaskId));
                 setActiveTaskId(null);
@@ -338,13 +363,14 @@ export default function HomePage() {
           values={sortedSubtasks}
           onReorder={(newOrder) => {
             if (!isBaseView) return;
-            userEditedRef.current = true;
+            userEditedRef.current = false;
             const filteredIds = new Set(sortedSubtasks.map(s => s._uiId));
             const reorderedFull = [
               ...newOrder,
               ...subtasks.filter(s => !filteredIds.has(s._uiId))
             ];
             setSubtasks(reorderedFull);
+            persistReorder(reorderedFull)
           }}
         >
           {sortedSubtasks.map((s) => (

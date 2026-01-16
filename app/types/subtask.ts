@@ -6,6 +6,7 @@ export interface PersistedSubtask {
   estimateMinutes: number
   completed: boolean
   priority: Priority;
+  orderIndex: number;
 }
 
 export interface UiSubtask {
@@ -15,5 +16,6 @@ export interface UiSubtask {
   estimateMinutes: number;
   completed: boolean; // must exist!
   priority: Priority;
+  orderIndex: number;
 }
 
