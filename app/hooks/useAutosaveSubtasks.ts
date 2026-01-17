@@ -11,7 +11,7 @@ interface Params {
   onSubtaskSaved?: () => void;
 }
 
-const AUTOSAVE_DELAY = 300;
+const AUTOSAVE_DELAY = 500;
 const MIN_SAVING_DURATION = 500;
 
 export function useAutosaveSubtasks({
