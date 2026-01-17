@@ -384,7 +384,14 @@ export default function HomePage() {
           }}
         >
           {sortedSubtasks.map((s) => (
-            <Reorder.Item key={s._uiId} value={s} dragListener={isBaseView} className={isBaseView ? "cursor-grab" : "cursor-default"}>
+            <Reorder.Item 
+              key={s._uiId} 
+              value={s} 
+              dragListener={isBaseView && !saving} 
+              className={
+                isBaseView && !saving 
+                ? "cursor-grab active:cursor-grabbing" 
+                : "cursor-not-allowed opacity-70"}>
               <SubtaskCard
                 subtask={s}
                 onChange={updateSubtask}

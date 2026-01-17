@@ -38,6 +38,11 @@ export default function SubtaskCard({ subtask, onChange, onDelete, saving, disab
         setFocused(false);
         setConfirmDelete(false);
       }}
+      whileHover={
+        !disabled
+          ? { scale: 1.01 }
+          : undefined
+      }
     >
       {/* Completion + Title */}
       <div className="flex items-center gap-2">
@@ -50,11 +55,16 @@ export default function SubtaskCard({ subtask, onChange, onDelete, saving, disab
         />
         <div className="relative w-full">
           <input
+            disabled={disabled}
             value={subtask.title}
             placeholder="Subtask title"
             onChange={(e) => update({ title: e.target.value })}
             className={`w-full text-sm font-medium placeholder-gray-400 focus:outline-none ${
-              subtask.completed ? "line-through text-gray-400" : "text-gray-900"
+              disabled
+                ? "text-gray-400 cursor-not-allowed"
+                : subtask.completed
+                ? "line-through text-gray-400"
+                : "text-gray-900"}
             }`}
           />
           {/* Saving indicator */}
@@ -71,8 +81,13 @@ export default function SubtaskCard({ subtask, onChange, onDelete, saving, disab
         <label className="text-xs text-gray-500">Priority:</label>
         <select
           value={subtask.priority} // use actual value
+          disabled={disabled}
           onChange={(e) => update({ priority: e.target.value as Priority })}
-          className="text-xs text-gray-600 border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:border-gray-900"
+          className={`text-xs border rounded-md px-2 py-1 focus:outline-none ${
+            disabled
+              ? "text-gray-400 border-gray-200 bg-gray-50 cursor-not-allowed"
+              : "text-gray-600 border-gray-200 focus:border-gray-900"
+          }`}
         >
           <option value="Low">Low</option>
           <option value="Medium">Medium</option>
@@ -82,42 +97,56 @@ export default function SubtaskCard({ subtask, onChange, onDelete, saving, disab
 
       {/* Description */}
       <textarea
+        disabled={disabled}
         value={subtask.description}
         placeholder="Details"
         rows={2}
         onChange={(e) => update({ description: e.target.value })}
-        className="w-full resize-none text-sm text-gray-600 placeholder-gray-400 focus:outline-none"
+        className={`w-full resize-none text-sm placeholder-gray-400 focus:outline-none ${
+          disabled ? "text-gray-400 bg-gray-50 cursor-not-allowed" : "text-gray-600"
+        }`}
+
       />
 
       {/* Footer */}
       <div className="flex items-center justify-between pt-1">
         <input
           type="number"
+          disabled={disabled}
           min={0}
           value={subtask.estimateMinutes}
           onChange={(e) => update({ estimateMinutes: Number(e.target.value) })}
-          className="w-20 text-xs text-gray-600 border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:border-gray-900"
+          className={`w-20 text-xs border rounded-md px-2 py-1 focus:outline-none ${
+            disabled
+              ? "text-gray-400 border-gray-200 bg-gray-50 cursor-not-allowed"
+              : "text-gray-600 border-gray-200 focus:border-gray-900"
+          }`}
         />
 
-        {!confirmDelete ? (
-          <button
-            onClick={() => setConfirmDelete(true)}
-            className="text-xs text-gray-400 hover:text-red-500 transition"
-          >
-            Delete
-          </button>
-        ) : (
-          <div className="flex items-center gap-2">
-            <button onClick={onDelete} className="text-xs text-red-600 font-medium">
-              Confirm
-            </button>
+        {!disabled && (
+          !confirmDelete ? (
             <button
-              onClick={() => setConfirmDelete(false)}
-              className="text-xs text-gray-400"
+              onClick={() => setConfirmDelete(true)}
+              className="text-xs text-gray-400 hover:text-red-500 transition"
             >
-              Cancel
+              Delete
             </button>
-          </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onDelete}
+                className="text-xs text-red-600 font-medium"
+              >
+                Confirm
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="text-xs text-gray-400"
+              >
+                Cancel
+              </button>
+            </div>
+          )
         )}
       </div>
     </motion.div>
