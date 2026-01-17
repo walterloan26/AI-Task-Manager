@@ -28,6 +28,8 @@ export function useAutosaveSubtasks({
   const pendingSnapshotRef = useRef<string | null>(null);
   const savingStartRef = useRef<number>(0);
   const lastSavedOrderRef = useRef<string>("");
+  const lastGoodSubtasksRef = useRef<UiSubtask[]>([]);
+
 
 
   const [saving, setSaving] = useState(false);
@@ -75,9 +77,11 @@ export function useAutosaveSubtasks({
           if (!res.ok) throw new Error("Failed to save subtasks");
 
           const updatedTask = await res.json();
+
           lastSavedRef.current = snapshot;
           lastSavedOrderRef.current = orderSnapshot(items);
           pendingSnapshotRef.current = null;
+          lastGoodSubtasksRef.current = items;
 
           onServerUpdate(updatedTask);
 
@@ -96,6 +100,13 @@ export function useAutosaveSubtasks({
           }
         } catch (err) {
           console.error(err);
+          if (lastGoodSubtasksRef.current.length > 0) {
+            onServerUpdate({
+              id: activeTaskId,
+              subtasks: lastGoodSubtasksRef.current,
+            });
+          }
+
           setSaving(false);
           setSaveError("Failed to save changes");
           pendingSnapshotRef.current = null;
