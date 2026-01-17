@@ -368,6 +368,7 @@ export default function HomePage() {
         <Reorder.Group
           axis="y"
           values={sortedSubtasks}
+          dragListener={!saving && isBaseView}
           onReorder={(newOrder) => {
             if (!isBaseView) return;
 
@@ -389,6 +390,7 @@ export default function HomePage() {
                 onChange={updateSubtask}
                 onDelete={() => deleteSubtask(s._uiId)}
                 saving={s._uiId === savingSubtaskId}
+                disabled={saving}
               />
             </Reorder.Item>
           ))}
@@ -397,7 +399,12 @@ export default function HomePage() {
         {activeTaskId && isBaseView && (
           <button
             onClick={addSubtask}
-            className="w-full text-left text-sm text-gray-600 hover:text-gray-900"
+            disabled={saving}
+            className={`w-full text-left text-sm 
+              ${saving 
+                ? "text-gray-400 cursor-not-allowed"
+                : "text-gray-600 hover:text-gray-900"
+            }` }
           >
             + Add Subtask
           </button>

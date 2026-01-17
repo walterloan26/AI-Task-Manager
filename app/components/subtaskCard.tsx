@@ -9,9 +9,10 @@ interface Props {
   onChange: (updated: UiSubtask) => void;
   onDelete: () => void;
   saving?: boolean; // shows saving indicator
+  disabled?: boolean
 }
 
-export default function SubtaskCard({ subtask, onChange, onDelete, saving }: Props) {
+export default function SubtaskCard({ subtask, onChange, onDelete, saving, disabled }: Props) {
   /* ----------------------------- State ----------------------------- */
   const [focused, setFocused] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -31,8 +32,8 @@ export default function SubtaskCard({ subtask, onChange, onDelete, saving }: Pro
       transition={{ duration: 0.2 }}
       className={`rounded-2xl border bg-white p-4 space-y-3 transition-all ${
         focused ? "border-gray-900 shadow-md" : "border-gray-200"
-      }`}
-      onFocus={() => setFocused(true)}
+      } ${disabled ? "opacity-60 pointer-events-none" : ""}`}
+      onFocus={() => !disabled && setFocused(true)}
       onBlur={() => {
         setFocused(false);
         setConfirmDelete(false);
@@ -42,6 +43,7 @@ export default function SubtaskCard({ subtask, onChange, onDelete, saving }: Pro
       <div className="flex items-center gap-2">
         <input
           type="checkbox"
+          disabled={disabled}
           checked={subtask.completed}
           onChange={(e) => update({ completed: e.target.checked })}
           className="w-4 h-4 accent-gray-900"
