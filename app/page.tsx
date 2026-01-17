@@ -61,7 +61,7 @@ export default function HomePage() {
   }, []);
 
   /* --------------------------- Autosave Hook ------------------------ */
-  const { saving, hasPendingChanges, saveError } = useAutosaveSubtasks({
+  const { saving, hasPendingChanges, saveError, retrySave } = useAutosaveSubtasks({
     activeTaskId,
     subtasks,
     toPersisted,
@@ -72,6 +72,10 @@ export default function HomePage() {
     },
     userEditedRef,
     onSubtaskSaved: () => setSavingSubtaskId(null),
+    onRollback: (items) => {
+    setSubtasks(items);
+  },
+
   });
 
   /* ------------------------ Subtask Actions ------------------------ */
@@ -273,7 +277,10 @@ export default function HomePage() {
             {saveStatus === "error" && (
               <>
                 Error saving
-                <button onClick={() => (userEditedRef.current = true)} className="underline text-xs ml-1">
+                <button 
+                  onClick={retrySave}
+                  className="underline text-xs ml-1"
+                >
                   Retry
                 </button>
               </>

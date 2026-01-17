@@ -7,6 +7,7 @@ interface Params {
   subtasks: UiSubtask[];
   toPersisted: (items: UiSubtask[]) => PersistedSubtask[];
   onServerUpdate: (updatedTask: any) => void;
+  onRollback?: (items: UiSubtask[]) => void;
   userEditedRef?: React.MutableRefObject<boolean>;
   onSubtaskSaved?: () => void;
 }
@@ -19,6 +20,7 @@ export function useAutosaveSubtasks({
   subtasks,
   toPersisted,
   onServerUpdate,
+  onRollback,
   userEditedRef,
   onSubtaskSaved
 }: Params) {
@@ -81,7 +83,8 @@ export function useAutosaveSubtasks({
           lastSavedRef.current = snapshot;
           lastSavedOrderRef.current = orderSnapshot(items);
           pendingSnapshotRef.current = null;
-          lastGoodSubtasksRef.current = items;
+          lastGoodSubtasksRef.current = items.map((s) => ({ ...s }));
+
 
           onServerUpdate(updatedTask);
 
@@ -100,23 +103,32 @@ export function useAutosaveSubtasks({
           }
         } catch (err) {
           console.error(err);
-          if (lastGoodSubtasksRef.current.length > 0) {
-            onServerUpdate({
-              id: activeTaskId,
-              subtasks: lastGoodSubtasksRef.current,
-            });
-          }
-
           setSaving(false);
           setSaveError("Failed to save changes");
           pendingSnapshotRef.current = null;
 
+          // rollback optimistic changes locally
+          if (lastGoodSubtasksRef.current.length && onRollback) {
+            onRollback(lastGoodSubtasksRef.current);
+          }
         } finally {
         }
       }, AUTOSAVE_DELAY);
     },
-    [activeTaskId, onServerUpdate, toPersisted, userEditedRef]
+    [activeTaskId, onServerUpdate, toPersisted, onRollback]
   );
+
+  const retrySave = useCallback(() => {
+    if (!activeTaskId) return;
+
+    const snapshot = contentSnapshot(subtasks);
+
+    // Clear pending guard so retry is allowed
+    pendingSnapshotRef.current = null;
+
+    persist(subtasks, snapshot);
+  }, [activeTaskId, subtasks, persist]);
+
 
 
   useEffect(() => {
@@ -126,12 +138,13 @@ export function useAutosaveSubtasks({
       hydratedRef.current = true;
       lastSavedRef.current = contentSnapshot(subtasks);
       lastSavedOrderRef.current = orderSnapshot(subtasks);
+      lastGoodSubtasksRef.current = subtasks.map((s) => ({ ...s }));
+
       return;
     }
 
     const snapshot = contentSnapshot(subtasks);
     const currentOrder = orderSnapshot(subtasks);
-
 
     const contentUnchanged = snapshot === lastSavedRef.current;
     const orderUnchanged = currentOrder === lastSavedOrderRef.current;
@@ -147,5 +160,5 @@ export function useAutosaveSubtasks({
     };
   }, []);
 
-  return { saving, hasPendingChanges, saveError };
+  return { saving, hasPendingChanges, saveError, retrySave };
 }
