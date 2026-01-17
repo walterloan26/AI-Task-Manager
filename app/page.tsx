@@ -145,6 +145,9 @@ export default function HomePage() {
     return true;
   });
 
+  // NOTE: sortedSubtasks is visual-only.
+  // Never persist orderIndex changes derived from sorting or filtering.
+
   /* ------------------------ Sorting ------------------------------- */
   const sortedSubtasks = [...filteredSubtasks].sort((a, b) => {
     if (!sort) return 0;
@@ -167,6 +170,10 @@ export default function HomePage() {
       ...s,
       orderIndex: index,
   }));
+
+  const preserveOrderIndex = (items: UiSubtask[]) =>
+  items.map((s) => ({ ...s }));
+
 
   /* ----------------------------- UI ------------------------------- */
   return (
@@ -356,13 +363,15 @@ export default function HomePage() {
           values={sortedSubtasks}
           onReorder={(newOrder) => {
             if (!isBaseView) return;
-            const filteredIds = new Set(sortedSubtasks.map(s => s._uiId));
-            const reorderedFull = [
-              ...newOrder,
-              ...subtasks.filter(s => !filteredIds.has(s._uiId))
-            ];
-            const normalized = normalizeOrder(reorderedFull);
+
             userEditedRef.current = true;
+
+            const baseIds = new Set(baseOrderedSubtasks.map(s => s._uiId));
+
+            const reordered = newOrder.filter(s => baseIds.has(s._uiId));
+
+            const normalized = normalizeOrder(reordered);
+
             setSubtasks(normalized);
           }}
         >
