@@ -122,7 +122,7 @@ export default function SubtaskCard({ subtask, onChange, onDelete, saving, disab
               : "text-gray-600 border-gray-200 focus:border-gray-900"
           }`}
         />
-
+      
         {!disabled && (
           !confirmDelete ? (
             <button
