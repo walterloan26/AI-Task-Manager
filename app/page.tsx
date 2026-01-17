@@ -36,18 +36,20 @@ export default function HomePage() {
         _uiId: crypto.randomUUID(),
         completed: s.completed ?? false,
         priority: s.priority ?? "Medium",
+        orderIndex: s.orderIndex, // ← ENSURE THIS EXISTS
       })),
     []
   );
 
   const toPersisted = (items: UiSubtask[]) =>
-    items.map((s, index) => ({
+    items.map((s) => ({
       id: s.id,
       title: s.title,
       description: s.description,
       estimateMinutes: s.estimateMinutes,
       completed: s.completed,
       priority: s.priority ?? "Medium",
+      orderIndex: s.orderIndex,
   }));
 
 
@@ -96,6 +98,7 @@ export default function HomePage() {
       estimateMinutes: 0,
       completed: false,
       priority: "Medium",
+      orderIndex: subtasks.length, // ← ADD THIS
     };
     setSubtasks((prev) => [...prev, newSubtask]);
   };
@@ -131,8 +134,12 @@ export default function HomePage() {
     return "saved";
   })();
 
+  const baseOrderedSubtasks = [...subtasks].sort(
+    (a, b) => a.orderIndex - b.orderIndex
+  );
+
   /* ------------------------ Filtering ---------------------------- */
-  const filteredSubtasks = subtasks.filter((s) => {
+  const filteredSubtasks = baseOrderedSubtasks.filter((s) => {
     if (filter.completed !== undefined && s.completed !== filter.completed) return false;
     if (filter.priority && s.priority !== filter.priority) return false;
     return true;
@@ -155,25 +162,11 @@ export default function HomePage() {
     return 0;
   });
 
-  const persistReorder = async (newOrder: UiSubtask[]) => {
-    try {
-      await fetch("/api/subtasks/reorder", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskId: activeTaskId,
-          order: newOrder.map((s, index) => ({
-            id: s.id,
-            orderIndex: index,
-          })),
-        }),
-      });
-    } catch (e) {
-      console.error("Failed to persist reorder", e);
-      // optional: toast / banner
-    }
-  };
-
+  const normalizeOrder = (items: UiSubtask[]): UiSubtask[] =>
+    items.map((s, index) => ({
+      ...s,
+      orderIndex: index,
+  }));
 
   /* ----------------------------- UI ------------------------------- */
   return (
@@ -363,14 +356,14 @@ export default function HomePage() {
           values={sortedSubtasks}
           onReorder={(newOrder) => {
             if (!isBaseView) return;
-            userEditedRef.current = false;
             const filteredIds = new Set(sortedSubtasks.map(s => s._uiId));
             const reorderedFull = [
               ...newOrder,
               ...subtasks.filter(s => !filteredIds.has(s._uiId))
             ];
-            setSubtasks(reorderedFull);
-            persistReorder(reorderedFull)
+            const normalized = normalizeOrder(reorderedFull);
+            userEditedRef.current = true;
+            setSubtasks(normalized);
           }}
         >
           {sortedSubtasks.map((s) => (

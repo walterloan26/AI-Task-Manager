@@ -173,54 +173,24 @@ export async function PATCH(req: Request) {
         { status: 400 }
       )
     }
-
-    const existing = await prisma.subtask.findMany({
-      where: { taskId },
-      select: { id: true },
-    })
-
-    const existingIds = new Set(existing.map(s => s.id))
-    const incomingIds = new Set(subtasks.filter(s => s.id).map(s => s.id))
-
-    const toDelete = [...existingIds].filter(id => !incomingIds.has(id))
-
     await prisma.$transaction([
       prisma.subtask.deleteMany({
-        where: { id: { in: toDelete } },
+        where: { taskId },
       }),
 
-      ...subtasks
-        .filter(s => s.id)
-        .map(s =>
-          prisma.subtask.update({
-            where: { id: s.id },
-            data: {
-              title: s.title,
-              description: s.description,
-              estimateMinutes: s.estimateMinutes,
-              completed: s.completed ?? false,
-              priority: s.priority ?? "Medium",
-              orderIndex: s.orderIndex,
-            },
-          })
-        ),
-
-      ...subtasks
-        .filter(s => !s.id)
-        .map(s =>
-          prisma.subtask.create({
-            data: {
-              taskId,
-              title: s.title,
-              description: s.description,
-              estimateMinutes: s.estimateMinutes,
-              completed: s.completed ?? false,
-              priority: s.priority ?? "Medium",
-              orderIndex: s.orderIndex,
-            },
-          })
-        ),
+      prisma.subtask.createMany({
+        data: subtasks.map((s) => ({
+          taskId,
+          title: s.title,
+          description: s.description,
+          estimateMinutes: s.estimateMinutes,
+          completed: s.completed ?? false,
+          priority: s.priority ?? "Medium",
+          orderIndex: s.orderIndex,
+        })),
+      }),
     ])
+
 
     const updatedTask = await prisma.task.findUnique({
       where: { id: taskId },

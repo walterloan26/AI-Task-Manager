@@ -34,12 +34,13 @@ export function useAutosaveSubtasks({
 
   const contentSnapshot = (items: UiSubtask[]) =>
     JSON.stringify(
-      items.map(({ title, description, estimateMinutes, completed, priority }) => ({
+      items.map(({ title, description, estimateMinutes, completed, priority, orderIndex }) => ({
         title,
         description,
         estimateMinutes,
         completed,
         priority,
+        orderIndex
       })
     )
   );
@@ -93,11 +94,6 @@ export function useAutosaveSubtasks({
           pendingSnapshotRef.current = null;
 
         } finally {
-          if (userEditedRef?.current === false) {
-            lastSavedRef.current = snapshot;
-            return;
-          }
-
         }
       }, AUTOSAVE_DELAY);
     },
