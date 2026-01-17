@@ -27,6 +27,8 @@ export function useAutosaveSubtasks({
   const lastSavedRef = useRef<string>("");
   const pendingSnapshotRef = useRef<string | null>(null);
   const savingStartRef = useRef<number>(0);
+  const lastSavedOrderRef = useRef<string>("");
+
 
   const [saving, setSaving] = useState(false);
   const [hasPendingChanges, setHasPendingChanges] = useState(false);
@@ -44,6 +46,10 @@ export function useAutosaveSubtasks({
       })
     )
   );
+
+  const orderSnapshot = (items: UiSubtask[]) =>
+    JSON.stringify(items.map((s) => s.orderIndex));
+
 
   const persist = useCallback(
     (items: UiSubtask[], snapshot: string) => {
@@ -70,6 +76,7 @@ export function useAutosaveSubtasks({
 
           const updatedTask = await res.json();
           lastSavedRef.current = snapshot;
+          lastSavedOrderRef.current = orderSnapshot(items);
           pendingSnapshotRef.current = null;
 
           onServerUpdate(updatedTask);
@@ -107,12 +114,18 @@ export function useAutosaveSubtasks({
     if (!hydratedRef.current) {
       hydratedRef.current = true;
       lastSavedRef.current = contentSnapshot(subtasks);
+      lastSavedOrderRef.current = orderSnapshot(subtasks);
       return;
     }
 
     const snapshot = contentSnapshot(subtasks);
+    const currentOrder = orderSnapshot(subtasks);
 
-    if (snapshot === lastSavedRef.current) return;
+
+    const contentUnchanged = snapshot === lastSavedRef.current;
+    const orderUnchanged = currentOrder === lastSavedOrderRef.current;
+
+    if (contentUnchanged && orderUnchanged) return;
 
     persist(subtasks, snapshot);
   }, [subtasks, activeTaskId, persist]);
