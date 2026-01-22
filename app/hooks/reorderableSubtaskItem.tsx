@@ -1,4 +1,3 @@
-
 import { Reorder, useDragControls } from "framer-motion";
 import SubtaskCard from "../components/subtaskCard";
 import { UiSubtask } from "../types/subtask";
@@ -11,7 +10,7 @@ interface ReorderableSubtaskItemProps {
   saving?: boolean;
 }
 
-// Create a global map to persist dragControls per subtask _uiId
+// Global map to persist dragControls
 const dragControlsMap = new Map<string, ReturnType<typeof useDragControls>>();
 
 export default function ReorderableSubtaskItem({
@@ -21,22 +20,26 @@ export default function ReorderableSubtaskItem({
   onDelete,
   saving,
 }: ReorderableSubtaskItemProps) {
-  // Only create a new drag control if it doesn't exist yet
+  // ✅ Always call the hook
+  const dragControls = useDragControls();
+
+  // Store in the map if it doesn't exist
   if (!dragControlsMap.has(subtask._uiId)) {
-    dragControlsMap.set(subtask._uiId, useDragControls());
+    dragControlsMap.set(subtask._uiId, dragControls);
   }
 
-  const dragControls = dragControlsMap.get(subtask._uiId)!;
+  // Use the stored dragControls from the map
+  const persistentDragControls = dragControlsMap.get(subtask._uiId)!;
 
   return (
-    <Reorder.Item value={subtask} dragListener={false} dragControls={dragControls}>
+    <Reorder.Item value={subtask} dragListener={false} dragControls={persistentDragControls}>
       <SubtaskCard
         subtask={subtask}
         onChange={onChange}
         onDelete={onDelete}
         saving={saving}
         showReorderHandle={canReorder}
-        dragControls={dragControls}
+        dragControls={persistentDragControls}
       />
     </Reorder.Item>
   );

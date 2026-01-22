@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AnimatePresence, Reorder, motion, useDragControls } from "framer-motion";
-import SubtaskCard from "./components/subtaskCard";
+import { AnimatePresence, Reorder, motion } from "framer-motion";
 import { PersistedSubtask, UiSubtask } from "./types/subtask";
 import { useAutosaveSubtasks } from "./hooks/useAutosaveSubtasks";
 import ConfirmModal from "./components/ConfirmModal";
@@ -115,7 +114,7 @@ export default function HomePage() {
     ]);
   };
 
-  /* ------------------------ Filter & Sort ------------------------ */
+  /* ------------------------ Filters & Sorting ------------------------ */
   const applyFilters = (list: UiSubtask[]) => {
     if (filter.completed !== undefined) list = list.filter((s) => s.completed === filter.completed);
     if (filter.priority) list = list.filter((s) => s.priority === filter.priority);
@@ -199,9 +198,7 @@ export default function HomePage() {
               onClick={() => selectTask(t)}
               aria-pressed={t.id === activeTaskId}
               className={`w-full text-left px-4 py-2 rounded-lg text-sm border transition ${
-                t.id === activeTaskId
-                  ? "bg-gray-900 text-white border-gray-900 shadow-sm"
-                  : "bg-white border-gray-200 hover:bg-gray-50"
+                t.id === activeTaskId ? "bg-gray-900 text-white border-gray-900 shadow-sm" : "bg-white border-gray-200 hover:bg-gray-50"
               }`}
             >
               {t.task}
@@ -234,11 +231,7 @@ export default function HomePage() {
         />
       )}
 
-      {!online && activeTaskId && (
-        <p className="text-xs text-yellow-600">
-          Offline — editing is available, reordering is disabled
-        </p>
-      )}
+      {!online && activeTaskId && <p className="text-xs text-yellow-600">Offline — editing is available, reordering is disabled</p>}
 
       {/* New Task Input */}
       <textarea
@@ -248,11 +241,7 @@ export default function HomePage() {
         value={taskInput}
         onChange={(e) => setTaskInput(e.target.value)}
       />
-      <button
-        onClick={handleBreakdown}
-        disabled={!taskInput || loading}
-        className="w-full bg-gray-900 text-white rounded-lg py-2.5 text-sm font-medium"
-      >
+      <button onClick={handleBreakdown} disabled={!taskInput || loading} className="w-full bg-gray-900 text-white rounded-lg py-2.5 text-sm font-medium">
         {loading ? "Thinking…" : "Break down task"}
       </button>
 
@@ -272,9 +261,7 @@ export default function HomePage() {
             {saveStatus === "error" && hasPendingChanges && (
               <div className="flex items-center gap-1">
                 <span>Changes not saved</span>
-                <button onClick={retrySave} className="underline text-xs">
-                  Retry
-                </button>
+                <button onClick={retrySave} className="underline text-xs">Retry</button>
               </div>
             )}
           </motion.div>
@@ -340,6 +327,7 @@ export default function HomePage() {
         {activeTaskId && !canReorder && isBaseView && (
           <p className="text-xs text-gray-400">Reordering is available only in the base view, while online and not saving.</p>
         )}
+
         <Reorder.Group axis="y" values={visibleSubtasks} onReorder={handleReorder}>
           {visibleSubtasks.map((s) => (
             <ReorderableSubtaskItem
