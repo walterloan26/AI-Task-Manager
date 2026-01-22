@@ -11,6 +11,7 @@ export interface PersistedSubtask {
 
 export interface UiSubtask {
   _uiId: string; // unique for frontend
+  id?: string;
   title: string;
   description: string;
   estimateMinutes: number;

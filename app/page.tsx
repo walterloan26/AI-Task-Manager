@@ -6,6 +6,8 @@ import SubtaskCard from "./components/subtaskCard";
 import { PersistedSubtask, UiSubtask } from "./types/subtask";
 import { useAutosaveSubtasks } from "./hooks/useAutosaveSubtasks";
 import ConfirmModal from "./components/ConfirmModal";
+import { useOnlineStatus } from "./hooks/onlineStatus";
+import { useOfflineOrderQueue } from "./hooks/useOfflineOrderQueue";
 
 export default function HomePage() {
   /* ----------------------------- State ----------------------------- */
@@ -23,6 +25,11 @@ export default function HomePage() {
 
   const userEditedRef = useRef(false);
 
+    /* -------------------------- Connectivity -------------------------- */
+  const online = useOnlineStatus();
+  const { enqueue } = useOfflineOrderQueue(online);
+
+  /* ------------------------ Derived Flags --------------------------- */
   const isBaseView =
     filter.completed === undefined &&
     filter.priority === undefined &&
@@ -36,7 +43,7 @@ export default function HomePage() {
         _uiId: crypto.randomUUID(),
         completed: s.completed ?? false,
         priority: s.priority ?? "Medium",
-        orderIndex: s.orderIndex, // ← ENSURE THIS EXISTS
+        orderIndex: s.orderIndex,
       })),
     []
   );
@@ -50,8 +57,7 @@ export default function HomePage() {
       completed: s.completed,
       priority: s.priority ?? "Medium",
       orderIndex: s.orderIndex,
-  }));
-
+    }));
 
   /* --------------------------- Fetching ---------------------------- */
   useEffect(() => {
@@ -60,23 +66,52 @@ export default function HomePage() {
       .then((data) => setTasks(data.tasks));
   }, []);
 
-  /* --------------------------- Autosave Hook ------------------------ */
-  const { saving, hasPendingChanges, saveError, retrySave } = useAutosaveSubtasks({
-    activeTaskId,
-    subtasks,
-    toPersisted,
-    onServerUpdate: (updatedTask) => {
-      setTasks((prev) =>
-        prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
-      );
-    },
-    userEditedRef,
-    onSubtaskSaved: () => setSavingSubtaskId(null),
-    onRollback: (items) => {
-    setSubtasks(items);
-  },
+  /* --------------------------- Autosave ---------------------------- */
+  const { saving, hasPendingChanges, saveError, retrySave } =
+    useAutosaveSubtasks({
+      activeTaskId,
+      subtasks,
+      toPersisted,
+      onServerUpdate: (updatedTask) => {
+        setTasks((prev) =>
+          prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
+        );
+      },
+      userEditedRef,
+      onSubtaskSaved: () => setSavingSubtaskId(null),
+      onRollback: (items) => setSubtasks(items),
+    });
+  
+  /* ------------------------ Invariants (dev-only) ------------------ */
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
 
-  });
+    console.assert(
+      subtasks.every((s) => typeof s._uiId === "string" && s._uiId.length > 0),
+      "Invariant violated: every UiSubtask must have a stable _uiId",
+      subtasks
+    );
+  }, [subtasks]);
+
+
+  /* ------------------------ Helpers ------------------------------- */
+  const canReorder = Boolean(activeTaskId) && isBaseView && online && !saving;
+
+  const normalizeOrder = (items: UiSubtask[]): UiSubtask[] =>
+    items.map((s, index) => ({ ...s, orderIndex: index }));
+
+  function extractOrderDiff(prev: UiSubtask[], next: UiSubtask[]) {
+    const prevMap = new Map(
+      prev.filter(s => s.id).map(s => [s.id!, s.orderIndex])
+    );
+
+    return next
+      .filter(s => s.id && prevMap.get(s.id) !== s.orderIndex)
+      .map(s => ({
+        id: s.id!,
+        orderIndex: s.orderIndex,
+      }));
+  }
 
   /* ------------------------ Subtask Actions ------------------------ */
   const updateSubtask = (updated: UiSubtask) => {
@@ -87,39 +122,47 @@ export default function HomePage() {
     setSavingSubtaskId(updated._uiId);
   };
 
-  const deleteSubtask = (id: string) => {
+  const deleteSubtask = (uiId: string) => {
     userEditedRef.current = true;
-    setSubtasks((prev) => prev.filter((s) => s._uiId !== id));
+    setSubtasks((prev) =>
+      normalizeOrder(prev.filter((s) => s._uiId !== uiId))
+    );
   };
 
   const addSubtask = () => {
     if (!activeTaskId) return;
+
     userEditedRef.current = true;
-    const newSubtask: UiSubtask = {
-      _uiId: crypto.randomUUID(),
-      title: "",
-      description: "",
-      estimateMinutes: 0,
-      completed: false,
-      priority: "Medium",
-      orderIndex: subtasks.length, // ← ADD THIS
-    };
-    setSubtasks((prev) => [...prev, newSubtask]);
+    setSubtasks((prev) => [
+      ...prev,
+      {
+        _uiId: crypto.randomUUID(),
+        title: "",
+        description: "",
+        estimateMinutes: 0,
+        completed: false,
+        priority: "Medium",
+        orderIndex: prev.length,
+      },
+    ]);
   };
 
   /* -------------------------- Task Flow ---------------------------- */
   const handleBreakdown = async () => {
     setLoading(true);
+
     const res = await fetch("/api/subtasks/breakdown", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ task: taskInput }),
     });
+
     const data = await res.json();
+
     setTasks((prev) => [data, ...prev]);
     setActiveTaskId(data.id);
-    userEditedRef.current = false;
     setSubtasks(toUi(data.subtasks));
+    userEditedRef.current = false;
     setTaskInput("");
     setLoading(false);
   };
@@ -130,7 +173,7 @@ export default function HomePage() {
     userEditedRef.current = false;
   };
 
-  /* ------------------------ Save Status --------------------------- */
+  /* ------------------------ Save Status ---------------------------- */
   const saveStatus = (() => {
     if (!activeTaskId) return "idle";
     if (saveError) return "error";
@@ -138,46 +181,65 @@ export default function HomePage() {
     return "saved";
   })();
 
+  /* ------------------------ Ordering ------------------------------- */
   const baseOrderedSubtasks = [...subtasks].sort(
     (a, b) => a.orderIndex - b.orderIndex
   );
 
-  /* ------------------------ Filtering ---------------------------- */
-  const filteredSubtasks = baseOrderedSubtasks.filter((s) => {
-    if (filter.completed !== undefined && s.completed !== filter.completed) return false;
-    if (filter.priority && s.priority !== filter.priority) return false;
-    return true;
-  });
+  /* ---------------- Filtering & Sorting (read-only) ---------------- */
+  const visibleSubtasks = (() => {
+    let list = baseOrderedSubtasks;
 
-  // NOTE: sortedSubtasks is visual-only.
-  // Never persist orderIndex changes derived from sorting or filtering.
+    if (filter.completed !== undefined) {
+      list = list.filter((s) => s.completed === filter.completed);
+    }
 
-  /* ------------------------ Sorting ------------------------------- */
-  const sortedSubtasks = [...filteredSubtasks].sort((a, b) => {
-    if (!sort) return 0;
+    if (filter.priority) {
+      list = list.filter((s) => s.priority === filter.priority);
+    }
+
+    if (!sort) return list;
+
     if (sort === "completed") {
-      return sortDirection === "asc"
-        ? Number(a.completed) - Number(b.completed)
-        : Number(b.completed) - Number(a.completed);
+      return [...list].sort((a, b) =>
+        sortDirection === "asc"
+          ? Number(a.completed) - Number(b.completed)
+          : Number(b.completed) - Number(a.completed)
+      );
     }
+
     if (sort === "priority") {
-      const priorityValue = { High: 3, Medium: 2, Low: 1 };
-      return sortDirection === "asc"
-        ? priorityValue[a.priority] - priorityValue[b.priority]
-        : priorityValue[b.priority] - priorityValue[a.priority];
+      const p = { High: 3, Medium: 2, Low: 1 };
+      return [...list].sort((a, b) =>
+        sortDirection === "asc"
+          ? p[a.priority] - p[b.priority]
+          : p[b.priority] - p[a.priority]
+      );
     }
-    return 0;
-  });
 
-  const normalizeOrder = (items: UiSubtask[]): UiSubtask[] =>
-    items.map((s, index) => ({
-      ...s,
-      orderIndex: index,
-  }));
+    return list;
+  })();
 
-  const preserveOrderIndex = (items: UiSubtask[]) =>
-  items.map((s) => ({ ...s }));
+  /* ------------------------ Reorder Handler ------------------------ */
+  const handleReorder = (next: UiSubtask[]) => {
+    if (!canReorder || !activeTaskId) return;
 
+    userEditedRef.current = true;
+
+    const normalized = normalizeOrder(next);
+    setSubtasks(normalized);
+
+    const diff = extractOrderDiff(baseOrderedSubtasks, normalized);
+    if (diff.length === 0) return;
+
+    if (!online) {
+      enqueue({
+        taskId: activeTaskId,
+        updates: diff,
+        timestamp: Date.now(),
+      });
+    }
+  };
 
   /* ----------------------------- UI ------------------------------- */
   return (
@@ -243,6 +305,12 @@ export default function HomePage() {
           />
         </>
       )}
+      
+      {!online && activeTaskId && (
+        <p className="text-xs text-yellow-600">
+          Offline — editing is available, reordering is disabled
+        </p>
+      )}
 
       {/* New Task Input */}
       <textarea
@@ -274,16 +342,16 @@ export default function HomePage() {
           >
             {saveStatus === "saving" && "Saving…"}
             {saveStatus === "saved" && "Saved"}
-            {saveStatus === "error" && (
-              <>
-                Error saving
-                <button 
+            {saveStatus === "error" && hasPendingChanges && (
+              <div className="flex items-center gap-1">
+                <span>Changes not saved</span>
+                <button
                   onClick={retrySave}
-                  className="underline text-xs ml-1"
+                  className="underline text-xs"
                 >
                   Retry
                 </button>
-              </>
+              </div>
             )}
           </motion.div>
         )}
@@ -365,33 +433,28 @@ export default function HomePage() {
 
       {/* Subtasks */}
       <section className="space-y-3">
+        {activeTaskId && !canReorder && isBaseView && (
+        <p className="text-xs text-gray-400">
+          Reordering is temporarily unavailable while offline or saving
+        </p>
+      )}
         <Reorder.Group
           axis="y"
-          values={sortedSubtasks}
-          dragListener={!saving && isBaseView}
-          onReorder={(newOrder) => {
-            if (!isBaseView) return;
-
-            userEditedRef.current = true;
-
-            const baseIds = new Set(baseOrderedSubtasks.map(s => s._uiId));
-
-            const reordered = newOrder.filter(s => baseIds.has(s._uiId));
-
-            const normalized = normalizeOrder(reordered);
-
-            setSubtasks(normalized);
-          }}
+          values={visibleSubtasks}
+          dragListener={canReorder}
+          onReorder={handleReorder}
         >
-          {sortedSubtasks.map((s) => (
+          {visibleSubtasks.map((s) => (
             <Reorder.Item 
               key={s._uiId} 
               value={s} 
-              dragListener={isBaseView && !saving} 
+              dragListener={canReorder} 
               className={
-                isBaseView && !saving 
+                canReorder 
                 ? "cursor-grab active:cursor-grabbing" 
-                : "cursor-not-allowed opacity-70"}>
+                : "cursor-default"
+              }
+            >
               <SubtaskCard
                 subtask={s}
                 onChange={updateSubtask}
@@ -402,6 +465,13 @@ export default function HomePage() {
             </Reorder.Item>
           ))}
         </Reorder.Group>
+
+        {!canReorder && activeTaskId && (
+          <p className="text-xs text-gray-400 italic">
+            Reordering is available only in the base view while online and not
+            saving
+          </p>
+        )}
 
         {activeTaskId && isBaseView && (
           <button
@@ -415,11 +485,6 @@ export default function HomePage() {
           >
             + Add Subtask
           </button>
-        )}
-        {activeTaskId && !isBaseView && (
-          <p className="text-xs text-gray-400 italic">
-            Clear filters and sorting to add a new subtask
-          </p>
         )}
 
       </section>

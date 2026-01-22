@@ -54,12 +54,12 @@ export function useAutosaveSubtasks({
   const orderSnapshot = (items: UiSubtask[]) =>
     JSON.stringify(items.map((s) => s.orderIndex));
 
-
   const persist = useCallback(
     (items: UiSubtask[], snapshot: string) => {
-      if (!activeTaskId || pendingSnapshotRef.current === snapshot) return;
+      const combinedSnapshot = snapshot + "|" + orderSnapshot(items);
+      if (!activeTaskId || pendingSnapshotRef.current === combinedSnapshot) return;
 
-      pendingSnapshotRef.current = snapshot;
+      pendingSnapshotRef.current = combinedSnapshot;
       setHasPendingChanges(true);
       setSaving(true);
 
