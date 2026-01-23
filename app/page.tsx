@@ -29,6 +29,8 @@ export default function HomePage() {
   const [sort, setSort] = useState<"priority" | "completed" | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const userEditedRef = useRef(false);
+  const [shouldHighlight, setShouldHighlight] = useState(false);
+  const subtasksSectionRef = useRef<HTMLDivElement>(null);
 
   /* -------------------------- Connectivity -------------------------- */
   const online = useOnlineStatus();
@@ -235,11 +237,31 @@ export default function HomePage() {
     }
   };
 
-  const selectTask = (task: any) => {
+  const selectTask = useCallback((task: any) => {
     setActiveTaskId(task.id);
     setSubtasks(toUi(task.subtasks));
     userEditedRef.current = false;
-  };
+    
+    // Set highlight state
+    setShouldHighlight(true);
+    
+    // Scroll to subtasks with smooth animation
+    setTimeout(() => {
+      if (subtasksSectionRef.current) {
+        const headerOffset = 80; // Adjust based on your header height
+        const elementPosition = subtasksSectionRef.current.getBoundingClientRect().top;
+        const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+        
+        window.scrollTo({
+          top: offsetPosition,
+          behavior: 'smooth'
+        });
+      }
+      
+      // Remove highlight after animation
+      setTimeout(() => setShouldHighlight(false), 1500);
+    }, 100);
+  }, []);
 
   /* ----------------------------- UI ------------------------------- */
   return (
@@ -263,52 +285,53 @@ export default function HomePage() {
       ) : tasks.length > 0 ? (
         <section className="space-y-2">
           {tasks.map((t) => (
-            <div 
-              key={t.id} 
+            <motion.div 
+              key={t.id}
+              layout
               className={`group relative rounded-lg border transition ${
                 t.id === activeTaskId 
-                  ? "bg-gray-900 dark:bg-gray-700 border-gray-900 dark:border-gray-600 shadow-sm" 
+                  ? "bg-gray-900 dark:bg-gray-700 border-gray-900 dark:border-gray-600 shadow-lg" 
                   : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750"
               }`}
+              whileTap={{ scale: 0.98 }}
+              transition={{ duration: 0.2 }}
             >
               <button
                 onClick={() => selectTask(t)}
                 aria-pressed={t.id === activeTaskId}
                 className={`w-full text-left px-4 py-2 pr-10 rounded-lg text-sm transition ${
-                  t.id === activeTaskId 
-                    ? "text-white" 
-                    : "text-gray-900 dark:text-gray-100"
+                  t.id === activeTaskId ? "text-white" : "text-gray-900 dark:text-gray-100"
                 }`}
               >
                 {t.task}
               </button>
               
-              {/* Delete Button */}
+              {/* Delete Button (keep your existing delete button code) */}
               <button
                 onClick={(e) => handleDeleteTask(t, e)}
                 disabled={!!deletingTaskId}
-                className={`absolute right-2 top-1/2 transform -translate-y-1/2 p-1 rounded transition ${
-                  t.id === activeTaskId
-                    ? "text-white/70 hover:text-white hover:bg-white/20"
-                    : "text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30"
-                } ${deletingTaskId ? "opacity-50 cursor-not-allowed" : ""}`}
+                className={`absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded transition ${
+                  t.id === activeTaskId 
+                    ? "text-white hover:bg-white/20" 
+                    : "text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700"
+                } ${deletingTaskId === t.id ? "opacity-50 cursor-not-allowed" : ""}`}
                 aria-label={`Delete task: ${t.task}`}
-                title="Delete task"
               >
-                {deletingTaskId === t.id ? (
-                  <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <svg 
-                    xmlns="http://www.w3.org/2000/svg" 
-                    className="w-4 h-4" 
-                    viewBox="0 0 20 20" 
-                    fill="currentColor"
-                  >
-                    <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                  </svg>
-                )}
+                <svg 
+                  xmlns="http://www.w3.org/2000/svg" 
+                  className="w-4 h-4" 
+                  viewBox="0 0 20 20" 
+                  fill="currentColor"
+                >
+                  <path 
+                    fillRule="evenodd" 
+                    d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" 
+                    clipRule="evenodd" 
+                  />
+                </svg>
               </button>
-            </div>
+
+            </motion.div>
           ))}
         </section>
       ) : null}
@@ -507,47 +530,104 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Subtasks */}
-    <section className="space-y-3">
-      {activeTaskId && !canReorder && isBaseView && (
-        <p className="text-xs text-gray-400 dark:text-gray-500">
-          Reordering is available only in the base view, while online and not saving.
-        </p>
-      )}
+          {/* Subtasks Section */}
+      <motion.section 
+        ref={subtasksSectionRef}
+        className="space-y-3"
+        animate={shouldHighlight ? {
+          scale: [1, 1.01, 1],
+          transition: { duration: 1 }
+        } : {}}
+      >
+        {/* Add a visual indicator when task is selected */}
+        {activeTaskId && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mb-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                <span className="text-sm text-blue-700 dark:text-blue-300">
+                  Viewing subtasks for <strong className="font-semibold">
+                    {tasks.find(t => t.id === activeTaskId)?.task || "Selected Task"}
+                  </strong>
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  setActiveTaskId(null);
+                  setSubtasks([]);
+                }}
+                className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </motion.div>
+        )}
+        
+        {activeTaskId && !canReorder && isBaseView && (
+          <p className="text-xs text-gray-400 dark:text-gray-500">
+            Reordering is available only in the base view, while online and not saving.
+          </p>
+        )}
 
-      <Reorder.Group axis="y" values={visibleSubtasks} onReorder={handleReorder}>
-        {visibleSubtasks.map((s) => (
-          <ReorderableSubtaskItem
-            key={s._uiId}
-            subtask={s}
-            canReorder={canReorder}
-            onChange={updateSubtask}
-            onDelete={() => deleteSubtask(s._uiId)}
-            saving={s._uiId === savingSubtaskId}
-          />
-        ))}
-      </Reorder.Group>
+        <Reorder.Group axis="y" values={visibleSubtasks} onReorder={handleReorder}>
+          {visibleSubtasks.map((s) => (
+            <ReorderableSubtaskItem
+              key={s._uiId}
+              subtask={s}
+              canReorder={canReorder}
+              onChange={updateSubtask}
+              onDelete={() => deleteSubtask(s._uiId)}
+              saving={s._uiId === savingSubtaskId}
+            />
+          ))}
+        </Reorder.Group>
 
-      {!canReorder && activeTaskId && (
-        <p className="text-xs text-gray-400 dark:text-gray-500 italic">
-          Reordering is available only in the base view while online and not saving
-        </p>
-      )}
+        {!canReorder && activeTaskId && (
+          <p className="text-xs text-gray-400 dark:text-gray-500 italic">
+            Reordering is available only in the base view while online and not saving
+          </p>
+        )}
 
-      {activeTaskId && isBaseView && (
-        <button
-          onClick={addSubtask}
-          disabled={saving}
-          className={`w-full text-left text-sm transition ${
-            saving 
-              ? "text-gray-400 dark:text-gray-500 cursor-not-allowed" 
-              : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300"
-          }`}
+        {activeTaskId && isBaseView && (
+          <button
+            onClick={addSubtask}
+            disabled={saving}
+            className={`w-full text-left text-sm transition ${
+              saving 
+                ? "text-gray-400 dark:text-gray-500 cursor-not-allowed" 
+                : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300"
+            }`}
+          >
+            + Add Subtask
+          </button>
+        )}
+      </motion.section>
+      {/* Back to Top Button - Shows when scrolled down */}
+      {activeTaskId && (
+        <motion.button
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 20 }}
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          className="fixed bottom-6 right-6 z-40 p-3 rounded-full bg-gray-900 dark:bg-gray-700 text-white shadow-lg hover:bg-gray-800 dark:hover:bg-gray-600 transition-colors"
+          aria-label="Scroll to top"
         >
-          + Add Subtask
-        </button>
+          <svg 
+            xmlns="http://www.w3.org/2000/svg" 
+            className="w-5 h-5" 
+            viewBox="0 0 20 20" 
+            fill="currentColor"
+          >
+            <path fillRule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clipRule="evenodd" />
+          </svg>
+        </motion.button>
       )}
-    </section>
     </main>
   );
 }

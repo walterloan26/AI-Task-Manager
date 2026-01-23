@@ -193,7 +193,7 @@ export default function SubtaskCard({
               value={estimateInput.stringValue}
               onChange={estimateInput.handleChange}
               onBlur={estimateInput.handleBlur}
-              className="w-16 text-xs border rounded-lg px-2 py-1.5 text-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+              className="w-16 text-xs border rounded-lg px-2 py-1.5 text-gray-700 border-gray-300 focus:outline-none focus:border-gray-900-16 text-xs border rounded-lg px-2 py-1.5 text-gray-700 border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
               placeholder="0"
               aria-label={`Time estimate in minutes for ${subtask.title}`}
             />
