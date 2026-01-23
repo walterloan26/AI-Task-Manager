@@ -8,8 +8,8 @@ import ConfirmModal from "./components/ConfirmModal";
 import { useOnlineStatus } from "./hooks/onlineStatus";
 import { useOfflineOrderQueue } from "./hooks/useOfflineOrderQueue";
 import ReorderableSubtaskItem from "./hooks/reorderableSubtaskItem";
-import SkeletonSubtaskCard from "./components/SkeletonSubtaskCard"; // Add this
-import SkeletonTaskList from "./components/SkeletonTaskList"; // Add this
+import SkeletonSubtaskCard from "./components/SkeletonSubtaskCard"; 
+import SkeletonTaskList from "./components/SkeletonTaskList"; 
 
 /* ------------------- HomePage ------------------- */
 export default function HomePage() {
@@ -19,9 +19,11 @@ export default function HomePage() {
   const [subtasks, setSubtasks] = useState<UiSubtask[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [loadingTasks, setLoadingTasks] = useState(true); // Add this
+  const [loadingTasks, setLoadingTasks] = useState(true);
   const [savingSubtaskId, setSavingSubtaskId] = useState<string | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
+  const [taskToDelete, setTaskToDelete] = useState<any>(null);
   const [filter, setFilter] = useState<{ completed?: boolean; priority?: "Low" | "Medium" | "High" }>({});
   const [sort, setSort] = useState<"priority" | "completed" | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
@@ -124,6 +126,43 @@ export default function HomePage() {
     ]);
   };
 
+  /* ------------------------ Task Deletion ------------------------ */
+  const handleDeleteTask = (task: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setTaskToDelete(task);
+  };
+
+  const confirmDeleteTask = async () => {
+    if (!taskToDelete) return;
+    
+    setDeletingTaskId(taskToDelete.id);
+    
+    try {
+      const res = await fetch(`/api/subtasks/breakdown?id=${taskToDelete.id}`, { 
+        method: "DELETE" 
+      });
+      
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Failed to delete task: ${res.status} - ${errorText}`);
+      }
+      
+      setTasks(prev => prev.filter(t => t.id !== taskToDelete.id));
+      
+      if (activeTaskId === taskToDelete.id) {
+        setActiveTaskId(null);
+        setSubtasks([]);
+      }
+      
+    } catch (err) {
+      console.error("Delete error:", err);
+      alert("Failed to delete task");
+    } finally {
+      setTaskToDelete(null);
+      setDeletingTaskId(null);
+    }
+  };
+
   /* ------------------------ Filters & Sorting ------------------------ */
   const applyFilters = (list: UiSubtask[]) => {
     if (filter.completed !== undefined) list = list.filter((s) => s.completed === filter.completed);
@@ -172,6 +211,7 @@ export default function HomePage() {
     if (!taskInput.trim()) return;
     
     setLoading(true);
+
     try {
       const res = await fetch("/api/subtasks/breakdown", {
         method: "POST",
@@ -189,7 +229,6 @@ export default function HomePage() {
       setTaskInput("");
     } catch (error) {
       console.error("Breakdown failed:", error);
-      // You might want to add a toast/notification here
     } finally {
       setLoading(false);
     }
@@ -216,25 +255,75 @@ export default function HomePage() {
       ) : tasks.length > 0 ? (
         <section className="space-y-2">
           {tasks.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => selectTask(t)}
-              aria-pressed={t.id === activeTaskId}
-              className={`w-full text-left px-4 py-2 rounded-lg text-sm border transition ${
-                t.id === activeTaskId ? "bg-gray-900 text-white border-gray-900 shadow-sm" : "bg-white border-gray-200 hover:bg-gray-50"
+            <div 
+              key={t.id} 
+              className={`group relative rounded-lg border transition ${
+                t.id === activeTaskId 
+                  ? "bg-gray-900 border-gray-900 shadow-sm" 
+                  : "bg-white border-gray-200 hover:bg-gray-50"
               }`}
             >
-              {t.task}
-            </button>
+              <button
+                onClick={() => selectTask(t)}
+                aria-pressed={t.id === activeTaskId}
+                className={`w-full text-left px-4 py-2 pr-10 rounded-lg text-sm transition ${
+                  t.id === activeTaskId ? "text-white" : "text-gray-900"
+                }`}
+              >
+                {t.task}
+              </button>
+              
+              {/* Delete Button */}
+              <button
+                onClick={(e) => handleDeleteTask(t, e)}
+                disabled={!!deletingTaskId}
+                className={`absolute right-2 top-1/2 transform -translate-y-1/2 p-1 rounded transition ${
+                  t.id === activeTaskId
+                    ? "text-white/70 hover:text-white hover:bg-white/20"
+                    : "text-gray-400 hover:text-red-500 hover:bg-red-50"
+                } ${deletingTaskId ? "opacity-50 cursor-not-allowed" : ""}`}
+                aria-label={`Delete task: ${t.task}`}
+                title="Delete task"
+              >
+                {deletingTaskId === t.id ? (
+                  <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <svg 
+                    xmlns="http://www.w3.org/2000/svg" 
+                    className="w-4 h-4" 
+                    viewBox="0 0 20 20" 
+                    fill="currentColor"
+                  >
+                    <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </button>
+            </div>
           ))}
         </section>
       ) : null}
 
-      {/* Delete Task Modal */}
+      {/* Delete Task Confirmation Modal */}
+      <ConfirmModal
+        isOpen={!!taskToDelete}
+        title="Delete Task?"
+        description={`This task "${taskToDelete?.task}" and all its subtasks will be permanently deleted. This action cannot be undone.`}
+        onCancel={() => {
+          setTaskToDelete(null);
+          setDeletingTaskId(null);
+        }}
+        onConfirm={confirmDeleteTask}
+        confirmText="Delete"
+        confirmDisabled={!!deletingTaskId}
+        showLoadingSpinner={!!deletingTaskId}
+        variant="danger"
+      />
+
+      {/* Delete Current Task Modal (optional - you can remove if not needed) */}
       {activeTaskId && (
         <ConfirmModal
           isOpen={showDeleteModal}
-          title="Delete Task?"
+          title="Delete Current Task?"
           description="This task and all its subtasks will be permanently deleted. This action cannot be undone."
           onCancel={() => setShowDeleteModal(false)}
           onConfirm={async () => {
@@ -281,7 +370,7 @@ export default function HomePage() {
           {loading ? (
             <div className="flex items-center justify-center gap-2">
               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              <span>AI is breaking down your task…</span>
+              <span>Breaking down task…</span>
             </div>
           ) : (
             "Break down task"
@@ -289,18 +378,27 @@ export default function HomePage() {
         </button>
       </div>
 
-      {/* AI Breakdown Loading Skeleton */}
+      {/* AI Breakdown Loading Skeleton - SIMPLIFIED */}
       {loading && (
         <motion.div
           initial={{ opacity: 0, height: 0 }}
           animate={{ opacity: 1, height: "auto" }}
           exit={{ opacity: 0, height: 0 }}
-          className="space-y-3 overflow-hidden"
+          className="space-y-4 p-4 bg-gray-50 rounded-xl border border-gray-200"
         >
-          <div className="text-xs text-gray-500 font-medium">AI is generating subtasks…</div>
-          {[1, 2, 3].map((i) => (
-            <SkeletonSubtaskCard key={i} />
-          ))}
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-gray-300 rounded-full animate-pulse" />
+            <div className="space-y-1">
+              <div className="h-3 w-32 bg-gray-300 rounded animate-pulse" />
+              <div className="h-2 w-24 bg-gray-200 rounded animate-pulse" />
+            </div>
+          </div>
+          
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <SkeletonSubtaskCard key={i} />
+            ))}
+          </div>
         </motion.div>
       )}
 

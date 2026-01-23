@@ -74,23 +74,23 @@ function parseAndValidateAISubtasks(raw: string): AISubtask[] {
 
 export async function POST(req: Request) {
   try {
-    const { task } = await req.json()
+    const { task } = await req.json();
 
     if (!task || typeof task !== "string") {
       return NextResponse.json(
         { error: "Invalid task input" },
         { status: 400 }
-      )
+      );
     }
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: buildPrompt(task) }],
       temperature: 0.3,
-    })
-
-    const raw = completion.choices[0].message.content ?? "[]"
-    const subtasks = parseAndValidateAISubtasks(raw)
+    });
+    
+    const raw = completion.choices[0].message.content ?? "[]";
+    const subtasks = parseAndValidateAISubtasks(raw);
 
     const createdTask = await prisma.task.create({
       data: {
@@ -109,15 +109,15 @@ export async function POST(req: Request) {
       include: {
         subtasks: { orderBy: { orderIndex: "asc" } },
       },
-    })
+    });
 
-    return NextResponse.json(createdTask, { status: 201 })
+    return NextResponse.json(createdTask, { status: 201 });
   } catch (error) {
-    console.error("POST /api/breakdown error:", error)
+    console.error("POST /api/breakdown error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
-    )
+    );
   }
 }
 
