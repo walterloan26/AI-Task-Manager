@@ -8,6 +8,8 @@ import ConfirmModal from "./components/ConfirmModal";
 import { useOnlineStatus } from "./hooks/onlineStatus";
 import { useOfflineOrderQueue } from "./hooks/useOfflineOrderQueue";
 import ReorderableSubtaskItem from "./hooks/reorderableSubtaskItem";
+import SkeletonSubtaskCard from "./components/SkeletonSubtaskCard"; // Add this
+import SkeletonTaskList from "./components/SkeletonTaskList"; // Add this
 
 /* ------------------- HomePage ------------------- */
 export default function HomePage() {
@@ -17,6 +19,7 @@ export default function HomePage() {
   const [subtasks, setSubtasks] = useState<UiSubtask[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingTasks, setLoadingTasks] = useState(true); // Add this
   const [savingSubtaskId, setSavingSubtaskId] = useState<string | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [filter, setFilter] = useState<{ completed?: boolean; priority?: "Low" | "Medium" | "High" }>({});
@@ -58,9 +61,16 @@ export default function HomePage() {
 
   /* --------------------------- Fetching ---------------------------- */
   useEffect(() => {
+    setLoadingTasks(true);
     fetch("/api/subtasks/breakdown")
       .then((res) => res.json())
-      .then((data) => setTasks(data.tasks));
+      .then((data) => {
+        setTasks(data.tasks);
+        setLoadingTasks(false);
+      })
+      .catch(() => {
+        setLoadingTasks(false);
+      });
   }, []);
 
   /* --------------------------- Autosave ---------------------------- */
@@ -159,19 +169,30 @@ export default function HomePage() {
 
   /* ------------------------ Task Flow ---------------------------- */
   const handleBreakdown = async () => {
+    if (!taskInput.trim()) return;
+    
     setLoading(true);
-    const res = await fetch("/api/subtasks/breakdown", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ task: taskInput }),
-    });
-    const data = await res.json();
-    setTasks((prev) => [data, ...prev]);
-    setActiveTaskId(data.id);
-    setSubtasks(toUi(data.subtasks));
-    userEditedRef.current = false;
-    setTaskInput("");
-    setLoading(false);
+    try {
+      const res = await fetch("/api/subtasks/breakdown", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task: taskInput }),
+      });
+      
+      if (!res.ok) throw new Error("Failed to generate breakdown");
+      
+      const data = await res.json();
+      setTasks((prev) => [data, ...prev]);
+      setActiveTaskId(data.id);
+      setSubtasks(toUi(data.subtasks));
+      userEditedRef.current = false;
+      setTaskInput("");
+    } catch (error) {
+      console.error("Breakdown failed:", error);
+      // You might want to add a toast/notification here
+    } finally {
+      setLoading(false);
+    }
   };
 
   const selectTask = (task: any) => {
@@ -189,8 +210,10 @@ export default function HomePage() {
         <p className="text-sm text-gray-500">Break down complex work into simple steps</p>
       </header>
 
-      {/* Task List */}
-      {tasks.length > 0 && (
+      {/* Task List with Skeleton */}
+      {loadingTasks ? (
+        <SkeletonTaskList />
+      ) : tasks.length > 0 ? (
         <section className="space-y-2">
           {tasks.map((t) => (
             <button
@@ -205,9 +228,9 @@ export default function HomePage() {
             </button>
           ))}
         </section>
-      )}
+      ) : null}
 
-      {/* Delete Task */}
+      {/* Delete Task Modal */}
       {activeTaskId && (
         <ConfirmModal
           isOpen={showDeleteModal}
@@ -231,19 +254,55 @@ export default function HomePage() {
         />
       )}
 
-      {!online && activeTaskId && <p className="text-xs text-yellow-600">Offline — editing is available, reordering is disabled</p>}
+      {!online && activeTaskId && (
+        <p className="text-xs text-yellow-600">Offline — editing is available, reordering is disabled</p>
+      )}
 
       {/* New Task Input */}
-      <textarea
-        rows={4}
-        placeholder="Describe a task you want to break down…"
-        className="w-full border border-gray-200 rounded-lg p-3 text-sm"
-        value={taskInput}
-        onChange={(e) => setTaskInput(e.target.value)}
-      />
-      <button onClick={handleBreakdown} disabled={!taskInput || loading} className="w-full bg-gray-900 text-white rounded-lg py-2.5 text-sm font-medium">
-        {loading ? "Thinking…" : "Break down task"}
-      </button>
+      <div className="space-y-2">
+        <textarea
+          rows={4}
+          placeholder="Describe a task you want to break down…"
+          className="w-full border border-gray-200 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition"
+          value={taskInput}
+          onChange={(e) => setTaskInput(e.target.value)}
+          disabled={loading}
+        />
+        
+        <button 
+          onClick={handleBreakdown} 
+          disabled={!taskInput.trim() || loading}
+          className={`w-full rounded-lg py-2.5 text-sm font-medium transition-all ${
+            !taskInput.trim() || loading
+              ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+              : "bg-gray-900 text-white hover:bg-gray-800 active:scale-[0.99]"
+          }`}
+        >
+          {loading ? (
+            <div className="flex items-center justify-center gap-2">
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              <span>AI is breaking down your task…</span>
+            </div>
+          ) : (
+            "Break down task"
+          )}
+        </button>
+      </div>
+
+      {/* AI Breakdown Loading Skeleton */}
+      {loading && (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          exit={{ opacity: 0, height: 0 }}
+          className="space-y-3 overflow-hidden"
+        >
+          <div className="text-xs text-gray-500 font-medium">AI is generating subtasks…</div>
+          {[1, 2, 3].map((i) => (
+            <SkeletonSubtaskCard key={i} />
+          ))}
+        </motion.div>
+      )}
 
       {/* Save Status */}
       <AnimatePresence mode="wait">
@@ -279,7 +338,11 @@ export default function HomePage() {
                 <button
                   key={label}
                   onClick={() => setFilter({ ...filter, completed: val })}
-                  className={filter.completed === val ? "bg-gray-900 text-white px-2 py-1 rounded text-xs" : "px-2 py-1 border rounded text-xs"}
+                  className={`px-2 py-1 rounded text-xs transition ${
+                    filter.completed === val 
+                      ? "bg-gray-900 text-white" 
+                      : "border border-gray-200 hover:border-gray-300"
+                  }`}
                 >
                   {label}
                 </button>
@@ -293,7 +356,7 @@ export default function HomePage() {
                   priority: e.target.value ? (e.target.value as "Low" | "Medium" | "High") : undefined,
                 }))
               }
-              className="px-2 py-1 border rounded text-xs"
+              className="px-2 py-1 border border-gray-200 rounded text-xs focus:outline-none focus:ring-1 focus:ring-gray-900"
             >
               <option value="">All Priorities</option>
               <option value="High">High</option>
@@ -308,13 +371,20 @@ export default function HomePage() {
               <button
                 key={label}
                 onClick={() => setSort(label === "none" ? null : (label as "completed" | "priority"))}
-                className={sort === label ? "bg-gray-900 text-white px-2 py-1 rounded text-xs" : "px-2 py-1 border rounded text-xs"}
+                className={`px-2 py-1 rounded text-xs transition ${
+                  sort === label
+                    ? "bg-gray-900 text-white"
+                    : "border border-gray-200 hover:border-gray-300"
+                }`}
               >
                 {label === "completed" ? "Completion" : label === "priority" ? "Priority" : "None"}
               </button>
             ))}
             {sort && (
-              <button onClick={() => setSortDirection(sortDirection === "asc" ? "desc" : "asc")} className="px-2 py-1 border rounded text-xs">
+              <button 
+                onClick={() => setSortDirection(sortDirection === "asc" ? "desc" : "asc")} 
+                className="px-2 py-1 border border-gray-200 rounded text-xs hover:border-gray-300"
+              >
                 {sortDirection === "asc" ? "↑" : "↓"}
               </button>
             )}
@@ -349,7 +419,11 @@ export default function HomePage() {
           <button
             onClick={addSubtask}
             disabled={saving}
-            className={`w-full text-left text-sm ${saving ? "text-gray-400 cursor-not-allowed" : "text-gray-600 hover:text-gray-900"}`}
+            className={`w-full text-left text-sm transition ${
+              saving 
+                ? "text-gray-400 cursor-not-allowed" 
+                : "text-gray-600 hover:text-gray-900"
+            }`}
           >
             + Add Subtask
           </button>
