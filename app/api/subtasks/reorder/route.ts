@@ -20,12 +20,18 @@ export async function PATCH(req: Request) {
      * 1. Normalize orderIndex defensively
      * Guarantees 0..n-1 regardless of client input
      */
-    const normalized = order.map(
-      (item: { id: string }, index: number) => ({
-        id: item.id,
+    const normalized = order
+      .map((item, index) => ({
+        id: String(item.id || item),
         orderIndex: index,
-      })
-    );
+      }))
+      .filter(item => item.id && typeof item.id === "string")
+    // const normalized = order
+    //   .map((item: { id: string }, index: number) => ({
+    //     id: item.id,
+    //     orderIndex: index,
+    //   })
+    // );
 
     /**
      * 2. Validate all subtasks belong to task
