@@ -64,8 +64,7 @@ html {
   }
 }
 
-/* Better focus styles for accessibility */
-:focus-visible {
+:focus-visible:not(:focus-within) {
   outline: 2px solid #3b82f6;
   outline-offset: 2px;
 }
