@@ -42,38 +42,69 @@ export default function HomePage() {
 
   /* ------------------------- Transformers -------------------------- */
   const toUi = useCallback(
-    (items: PersistedSubtask[]): UiSubtask[] =>
-      items.map((s) => ({
+    (items: PersistedSubtask[] | undefined | null): UiSubtask[] =>
+      (items || []).map((s) => ({
         ...s,
         _uiId: crypto.randomUUID(),
         completed: s.completed ?? false,
         priority: s.priority ?? "Medium",
-        orderIndex: s.orderIndex,
+        orderIndex: s.orderIndex ?? 0, // Add default for orderIndex too
+        estimateMinutes: s.estimateMinutes > 0 ? s.estimateMinutes : 1,
       })),
     []
   );
 
   const toPersisted = (items: UiSubtask[]) =>
     items.map((s) => ({
-      id: s.id,
-      title: s.title,
-      description: s.description,
-      estimateMinutes: s.estimateMinutes,
-      completed: s.completed,
-      priority: s.priority ?? "Medium",
-      orderIndex: s.orderIndex,
+      id: s.id, // Include ID if it exists (for updates)
+      title: s.title || "",
+      description: s.description || "",
+      estimateMinutes: s.estimateMinutes > 0 ? s.estimateMinutes : 1, 
+      completed: s.completed || false,
+      priority: s.priority || "Medium",
+      orderIndex: s.orderIndex || 0,
     }));
 
+  /* --------------------------- Fetching ---------------------------- */
+  // useEffect(() => {
+  //   setLoadingTasks(true);
+  //   fetch("/api/subtasks/breakdown")
+  //     .then((res) => res.json())
+  //     .then((data) => {
+  //       setTasks(data.tasks);
+  //       setLoadingTasks(false);
+  //     })
+  //     .catch(() => {
+  //       setLoadingTasks(false);
+  //     });
+  // }, []);
   /* --------------------------- Fetching ---------------------------- */
   useEffect(() => {
     setLoadingTasks(true);
     fetch("/api/subtasks/breakdown")
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`API error: ${res.status}`);
+        }
+        return res.json();
+      })
       .then((data) => {
-        setTasks(data.tasks);
+        // Fix: Your API returns { success: true, data: [], count: 0 }
+        // But your code expects { tasks: [] }
+        console.log("API Response:", data); // Debug log
+        
+        // Ensure tasks have subtasks array
+        const tasksWithSubtasks = (data.tasks || data.data || []).map((task: any) => ({
+          ...task,
+          subtasks: Array.isArray(task.subtasks) ? task.subtasks : []
+        }));
+      
+        setTasks(tasksWithSubtasks);
         setLoadingTasks(false);
       })
-      .catch(() => {
+      .catch((error) => {
+        console.error("Failed to fetch tasks:", error);
+        setTasks([]); // Set empty array on error
         setLoadingTasks(false);
       });
   }, []);
@@ -121,7 +152,7 @@ export default function HomePage() {
         _uiId: crypto.randomUUID(),
         title: "",
         description: "",
-        estimateMinutes: 0,
+        estimateMinutes: 30,
         completed: false,
         priority: "Medium",
         orderIndex: prev.length,
@@ -222,16 +253,46 @@ export default function HomePage() {
         body: JSON.stringify({ task: taskInput }),
       });
       
-      if (!res.ok) throw new Error("Failed to generate breakdown");
+      // Check if response is ok first
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`API error ${res.status}: ${errorText}`);
+      }
       
-      const data = await res.json();
-      setTasks((prev) => [data, ...prev]);
-      setActiveTaskId(data.id);
-      setSubtasks(toUi(data.subtasks));
+      // Parse JSON directly
+      const response = await res.json();
+      console.log("API Response:", response);
+      
+      // Extract task data - your API returns { success: true, data: {...} }
+      const taskData = response.data;
+      
+      if (!taskData) {
+        throw new Error("No task data returned from API");
+      }
+      
+      console.log("New task created:", {
+        id: taskData.id,
+        task: taskData.task,
+        subtaskCount: taskData.subtasks?.length || 0
+      });
+      
+      // Add to tasks list
+      setTasks((prev) => [taskData, ...prev]);
+      
+      // Select this task
+      setActiveTaskId(taskData.id);
+      
+      // Set subtasks (ensure it's an array)
+      const subtasksArray = Array.isArray(taskData.subtasks) ? taskData.subtasks : [];
+      setSubtasks(toUi(subtasksArray));
+      
+      // Reset
       userEditedRef.current = false;
       setTaskInput("");
+      
     } catch (error) {
       console.error("Breakdown failed:", error);
+      alert(`Error: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -239,7 +300,8 @@ export default function HomePage() {
 
   const selectTask = useCallback((task: any) => {
     setActiveTaskId(task.id);
-    setSubtasks(toUi(task.subtasks));
+    const taskSubtasks = Array.isArray(task.subtasks) ? task.subtasks : []
+    setSubtasks(toUi(taskSubtasks));
     userEditedRef.current = false;
     
     // Set highlight state
@@ -282,11 +344,11 @@ export default function HomePage() {
       {/* Task List with Skeleton */}
       {loadingTasks ? (
         <SkeletonTaskList />
-      ) : tasks.length > 0 ? (
+      ) : tasks && tasks.length > 0 ? (
         <section className="space-y-2">
-          {tasks.map((t) => (
+          {tasks.map((t, index) => (
             <motion.div 
-              key={t.id}
+              key={t.id || `task-${index}`}
               layout
               className={`group relative rounded-lg border transition ${
                 t.id === activeTaskId 

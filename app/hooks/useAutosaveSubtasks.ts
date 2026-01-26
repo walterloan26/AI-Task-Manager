@@ -70,21 +70,37 @@ export function useAutosaveSubtasks({
         setSaveError(null);
 
         try {
+          console.log("Saving subtasks for task:", activeTaskId);
+          console.log("Subtasks being saved:", items);
+          
           const res = await fetch(`/api/subtasks/breakdown?id=${activeTaskId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ subtasks: toPersisted(items) }),
           });
 
-          if (!res.ok) throw new Error("Failed to save subtasks");
+          console.log("Save response status:", res.status);
+          
+          if (!res.ok) {
+            const errorText = await res.text();
+            console.error("Save error:", errorText);
+            throw new Error(`Failed to save subtasks: ${res.status} - ${errorText}`);
+          }
 
-          const updatedTask = await res.json();
+          const response = await res.json();
+          console.log("Save response:", response);
+          
+          // Extract task data from response
+          const updatedTask = response.data;
+          
+          if (!updatedTask) {
+            throw new Error("No task data in response");
+          }
 
           lastSavedRef.current = snapshot;
           lastSavedOrderRef.current = orderSnapshot(items);
           pendingSnapshotRef.current = null;
           lastGoodSubtasksRef.current = items.map((s) => ({ ...s }));
-
 
           onServerUpdate(updatedTask);
 
@@ -93,7 +109,7 @@ export function useAutosaveSubtasks({
           const finishSaving = () => {
             setSaving(false);
             setHasPendingChanges(false);
-            if (onSubtaskSaved) onSubtaskSaved()
+            if (onSubtaskSaved) onSubtaskSaved();
           };
 
           if (remaining > 0) {
@@ -101,21 +117,21 @@ export function useAutosaveSubtasks({
           } else {
             finishSaving();
           }
-        } catch (err) {
-          console.error(err);
+        } catch (err: any) {
+          console.error("Save failed:", err);
           setSaving(false);
-          setSaveError("Failed to save changes");
+          setSaveError(err.message || "Failed to save changes");
           pendingSnapshotRef.current = null;
 
           // rollback optimistic changes locally
           if (lastGoodSubtasksRef.current.length && onRollback) {
+            console.log("Rolling back to last good state");
             onRollback(lastGoodSubtasksRef.current);
           }
-        } finally {
         }
       }, AUTOSAVE_DELAY);
     },
-    [activeTaskId, onServerUpdate, toPersisted, onRollback]
+    [activeTaskId, onServerUpdate, toPersisted, onRollback, onSubtaskSaved]
   );
 
   const retrySave = useCallback(() => {

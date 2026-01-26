@@ -12,6 +12,7 @@ model Task {
   task      String
   createdAt DateTime  @default(now())
   subtasks  Subtask[]
+  complexity String?  @default("medium")
 }
 
 model Subtask {
