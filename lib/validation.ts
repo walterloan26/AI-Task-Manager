@@ -10,7 +10,12 @@ export const subtaskSchema = z.object({
   description: z.string(),
   estimateMinutes: z.number().int().min(1, "Estimate must be at least 1 minute"),
   completed: z.boolean(),
-  priority: z.enum(['Low', 'Medium', 'High']).optional()
+  priority: z
+  .string()
+  .transform(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+  .refine(p => ["Low", "Medium", "High"].includes(p), {
+    message: "Invalid priority value",
+  }),
 })
 
 export type AISubtask = z.infer<typeof subtaskSchema>

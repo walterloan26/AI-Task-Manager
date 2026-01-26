@@ -8,30 +8,29 @@ datasource db {
 }
 
 model Task {
-  id        String    @id @default(cuid())
-  task      String
-  createdAt DateTime  @default(now())
-  subtasks  Subtask[]
-  complexity String?  @default("medium")
+  id            String   @id @default(cuid())
+  task          String
+  complexity    String   @default("MEDIUM") // enforced in Zod
+  aiGenerated   Boolean  @default(false)
+  aiConfidence  Float?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime? @updatedAt
+  subtasks      Subtask[]
 }
 
 model Subtask {
   id              String   @id @default(cuid())
   title           String
   description     String
-  estimateMinutes Int
+  estimateMinutes Int      @default(0)
   completed       Boolean  @default(false)
-
+  priority        String   @default("MEDIUM") // enforced in Zod
+  orderIndex      Int
   taskId          String
   task            Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
   createdAt       DateTime @default(now())
-  updatedAt       DateTime @default(now()) @updatedAt
+  updatedAt       DateTime? @updatedAt
 
-  priority        String   @default("Medium") // must exist
-  
-  orderIndex      Int      // NEW — required for stable ordering
   @@index([taskId, orderIndex])
   @@unique([taskId, orderIndex])
 }
-

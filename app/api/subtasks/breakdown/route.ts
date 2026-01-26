@@ -4,6 +4,9 @@ import OpenAI from "openai"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { ratelimit } from "@/lib/rateLimit"
+import { aiSubtaskArrayLooseSchema } from "@/lib/ai/aiSchemas"
+import { normalizeAISubtasks } from "@/lib/ai/normalizeSubtasks"
+import { initialOrder } from "@/lib/order"
 import { 
   subtaskSchema, 
   type AISubtask,
@@ -38,7 +41,7 @@ CRITERIA:
 2. Include practical, specific descriptions  
 3. Order logically (prerequisites first)
 4. Estimate time realistically
-5. Assign priority: High (urgent), Medium (important), Low (eventually)
+5. Assign priority: HIGH (urgent), MEDIUM (important), LOW (eventually)
 
 RESPONSE FORMAT (JSON array only):
 [
@@ -47,8 +50,8 @@ RESPONSE FORMAT (JSON array only):
     "description": "Specific steps to complete",
     "estimateMinutes": 25,
     "completed": false,
-    "priority": "Medium"
-  }
+    "priority": "MEDIUM"
+  } 
 ]
 
 OUTPUT:`
@@ -140,22 +143,40 @@ export async function POST(req: Request) {
       max_tokens: 1000,
     })
     
-    const raw = completion.choices[0].message.content ?? "[]"
-    const subtasks = parseAndValidateAISubtasks(raw)
+    const rawText = completion.choices[0].message.content ?? "[]"
+    const cleaned = rawText.replace(/```json|```/g, "").trim()
+
+    let parsed: unknown
+
+    try {
+      parsed = JSON.parse(cleaned)
+    } catch {
+      throw new Error("AI returned invalid JSON")
+    }
+
+    const loose = aiSubtaskArrayLooseSchema.safeParse(parsed)
+
+    if (!loose.success) {
+      throw new Error("AI response failed loose validation")
+    }
+
+    const { subtasks, confidence } = normalizeAISubtasks(loose.data)
 
     // Create task with subtasks - INCLUDING complexity now
     const createdTask = await prisma.task.create({
       data: {
         task,
-        complexity: complexity || 'medium', // This should work now!
+        complexity: complexity?.toUpperCase(),
+        aiGenerated: true,
+        aiConfidence: confidence,
         subtasks: {
           create: subtasks.map((s, index) => ({
             title: s.title,
             description: s.description,
             estimateMinutes: s.estimateMinutes,
             completed: s.completed,
-            priority: s.priority || "Medium",
-            orderIndex: index,
+            priority: (s.priority?.toUpperCase() || "MEDIUM") as "HIGH" | "MEDIUM" | "LOW",
+            orderIndex: initialOrder(index),
           })),
         },
       },
@@ -389,20 +410,25 @@ export async function PATCH(req: Request) {
     }
 
     const { subtasks } = validation.data
+    // Normalize priorities to uppercase
+    const normalizedSubtasks = subtasks.map(s => ({
+      ...s,
+      priority: (s.priority?.toUpperCase() || "MEDIUM") as "HIGH" | "MEDIUM" | "LOW",
+    }));
 
     // Update task and subtasks
     const updatedTask = await prisma.task.update({
       where: { id: taskId },
       data: {
         subtasks: {
-          deleteMany: {},
-          create: subtasks.map((s, index) => ({
+          deleteMany: {}, // Delete all existing subtasks
+          create: normalizedSubtasks.map((s, index) => ({
             title: s.title || "",
             description: s.description || "",
-            estimateMinutes: s.estimateMinutes || 0,
+            estimateMinutes: Math.max(1, s.estimateMinutes || 1),
             completed: s.completed ?? false,
-            priority: s.priority || "Medium",
-            orderIndex: index,
+            priority: s.priority || "MEDIUM",
+            orderIndex: index, // Important: maintain order
           })),
         },
       },

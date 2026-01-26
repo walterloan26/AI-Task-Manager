@@ -31,6 +31,9 @@ export default function HomePage() {
   const userEditedRef = useRef(false);
   const [shouldHighlight, setShouldHighlight] = useState(false);
   const subtasksSectionRef = useRef<HTMLDivElement>(null);
+  const isReorderingRef = useRef(false);
+  const stableIdMap = useRef(new Map<string, string>());
+
 
   /* -------------------------- Connectivity -------------------------- */
   const online = useOnlineStatus();
@@ -41,18 +44,37 @@ export default function HomePage() {
   const canReorder = Boolean(activeTaskId) && isBaseView && online;
 
   /* ------------------------- Transformers -------------------------- */
-  const toUi = useCallback(
-    (items: PersistedSubtask[] | undefined | null): UiSubtask[] =>
-      (items || []).map((s) => ({
+  
+ const toUi = useCallback(
+  (items: PersistedSubtask[] | undefined | null): UiSubtask[] => {
+    console.log("🔄 toUi called with items:", items?.length || 0);
+    console.log("📊 stableIdMap size:", stableIdMap.current.size);
+    console.log("📊 Items IDs:", items?.map(s => s.id));
+    
+    return (items || []).map((s, index) => {
+      let uiId = stableIdMap.current.get(s.id);
+      const hadUiId = !!uiId;
+      
+      if (!uiId) {
+        uiId = crypto.randomUUID();
+        stableIdMap.current.set(s.id, uiId);
+        console.log(`✨ Created new UI ID for ${s.id}: ${uiId}`);
+      } else {
+        console.log(`✅ Reusing UI ID for ${s.id}: ${uiId}`);
+      }
+      
+      return {
         ...s,
-        _uiId: crypto.randomUUID(),
+        _uiId: uiId,
         completed: s.completed ?? false,
-        priority: s.priority ?? "Medium",
-        orderIndex: s.orderIndex ?? 0, // Add default for orderIndex too
+        priority: (s.priority?.toUpperCase() || "MEDIUM") as Priority,
+        orderIndex: s.orderIndex ?? index,
         estimateMinutes: s.estimateMinutes > 0 ? s.estimateMinutes : 1,
-      })),
-    []
-  );
+      };
+    });
+  },
+  []
+);
 
   const toPersisted = (items: UiSubtask[]) =>
     items.map((s) => ({
@@ -61,23 +83,10 @@ export default function HomePage() {
       description: s.description || "",
       estimateMinutes: s.estimateMinutes > 0 ? s.estimateMinutes : 1, 
       completed: s.completed || false,
-      priority: s.priority || "Medium",
+      priority: (s.priority?.toUpperCase() || "MEDIUM") as "HIGH" | "MEDIUM" | "LOW",
       orderIndex: s.orderIndex || 0,
     }));
 
-  /* --------------------------- Fetching ---------------------------- */
-  // useEffect(() => {
-  //   setLoadingTasks(true);
-  //   fetch("/api/subtasks/breakdown")
-  //     .then((res) => res.json())
-  //     .then((data) => {
-  //       setTasks(data.tasks);
-  //       setLoadingTasks(false);
-  //     })
-  //     .catch(() => {
-  //       setLoadingTasks(false);
-  //     });
-  // }, []);
   /* --------------------------- Fetching ---------------------------- */
   useEffect(() => {
     setLoadingTasks(true);
@@ -116,11 +125,15 @@ export default function HomePage() {
       subtasks,
       toPersisted,
       onServerUpdate: (updatedTask) =>
-        setTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))),
+        setTasks((prev) =>
+          prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
+        ),
       userEditedRef,
+      isReorderingRef,   
       onSubtaskSaved: () => setSavingSubtaskId(null),
       onRollback: (items) => setSubtasks(items),
     });
+
 
   /* ------------------------ Helpers ------------------------------- */
   const normalizeOrder = (items: UiSubtask[]) => items.map((s, i) => ({ ...s, orderIndex: i }));
@@ -133,10 +146,25 @@ export default function HomePage() {
   };
 
   const updateSubtask = (updated: UiSubtask) => {
-    userEditedRef.current = true;
-    setSubtasks((prev) => prev.map((s) => (s._uiId === updated._uiId ? updated : s)));
-    setSavingSubtaskId(updated._uiId);
+  console.log("🔄 updateSubtask called");
+  
+  // Normalize priority to uppercase
+  const normalizedUpdated = {
+    ...updated,
+    priority: updated.priority.toUpperCase() as Priority,
   };
+  
+  console.log("Normalized priority:", {
+    old: updated.priority,
+    new: normalizedUpdated.priority,
+  });
+  
+  userEditedRef.current = true;
+  setSubtasks((prev) => 
+    prev.map((s) => (s._uiId === normalizedUpdated._uiId ? normalizedUpdated : s))
+  );
+  setSavingSubtaskId(normalizedUpdated._uiId);
+};
 
   const deleteSubtask = (uiId: string) => {
     userEditedRef.current = true;
@@ -223,13 +251,54 @@ export default function HomePage() {
   /* ------------------------ Reorder Handler ------------------------ */
   const handleReorder = (next: UiSubtask[]) => {
     if (!canReorder || !activeTaskId) return;
-    userEditedRef.current = true;
-    const normalized = normalizeOrder(next);
-    setSubtasks(normalized);
-    const diff = extractOrderDiff([...subtasks], normalized);
-    if (!diff.length) return;
-    if (!online) enqueue({ taskId: activeTaskId, updates: diff, timestamp: Date.now() });
+
+    isReorderingRef.current = true;
+
+    setSubtasks((prev) => {
+      const normalized = normalizeOrder(next);
+      const diff = extractOrderDiff(prev, normalized);
+
+      if (!diff.length) {
+        isReorderingRef.current = false;
+        return prev;
+      }
+
+      // Persist order (online)
+      if (online) {
+        fetch("/api/subtasks/reorder", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            taskId: activeTaskId,
+            subtasks: diff,
+          }),
+        }).catch((err) => {
+          console.error("Reorder failed, enqueueing", err);
+          enqueue({
+            taskId: activeTaskId,
+            updates: diff,
+            timestamp: Date.now(),
+          });
+        });
+      } else {
+        enqueue({
+          taskId: activeTaskId,
+          updates: diff,
+          timestamp: Date.now(),
+        });
+      }
+
+      return normalized;
+    });
+
+    // Release autosave suppression on next tick
+    queueMicrotask(() => {
+      isReorderingRef.current = false;
+    });
   };
+
+
+
 
   /* ------------------------ Save Status ---------------------------- */
   const saveStatus = !activeTaskId
@@ -287,7 +356,7 @@ export default function HomePage() {
       setSubtasks(toUi(subtasksArray));
       
       // Reset
-      userEditedRef.current = false;
+      // userEditedRef.current = false;
       setTaskInput("");
       
     } catch (error) {
@@ -299,31 +368,56 @@ export default function HomePage() {
   };
 
   const selectTask = useCallback((task: any) => {
+    // If clicking the same task, deselect it
+    if (activeTaskId === task.id) {
+      setActiveTaskId(null);
+      setSubtasks([]);
+      return;
+    }
+    
+    // Step 1: Set active ID immediately (instant visual feedback)
     setActiveTaskId(task.id);
-    const taskSubtasks = Array.isArray(task.subtasks) ? task.subtasks : []
-    setSubtasks(toUi(taskSubtasks));
-    userEditedRef.current = false;
     
-    // Set highlight state
-    setShouldHighlight(true);
-    
-    // Scroll to subtasks with smooth animation
+    // Step 2: Prepare subtasks in a microtask (next tick)
     setTimeout(() => {
-      if (subtasksSectionRef.current) {
-        const headerOffset = 80; // Adjust based on your header height
-        const elementPosition = subtasksSectionRef.current.getBoundingClientRect().top;
-        const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
-        
-        window.scrollTo({
-          top: offsetPosition,
-          behavior: 'smooth'
-        });
-      }
+      const taskSubtasks = Array.isArray(task.subtasks) ? task.subtasks : [];
+      const uiSubtasks = taskSubtasks.map((s) => ({
+        ...s,
+        _uiId: crypto.randomUUID(),
+        completed: s.completed ?? false,
+        priority: s.priority ?? "Medium",
+        orderIndex: s.orderIndex ?? 0,
+        estimateMinutes: Math.max(1, s.estimateMinutes || 1),
+      }));
       
-      // Remove highlight after animation
-      setTimeout(() => setShouldHighlight(false), 1500);
-    }, 100);
-  }, []);
+      // Set subtasks
+      setSubtasks(uiSubtasks);
+      
+      // Reset edit flag
+      // userEditedRef.current = false;
+      
+      // Trigger highlight
+      setShouldHighlight(true);
+      
+      // Step 3: Scroll after subtasks are rendered
+      setTimeout(() => {
+        if (subtasksSectionRef.current) {
+          const headerOffset = 80;
+          const elementPosition = subtasksSectionRef.current.getBoundingClientRect().top;
+          const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+          
+          window.scrollTo({
+            top: offsetPosition,
+            behavior: 'smooth'
+          });
+        }
+        
+        // Remove highlight
+        setTimeout(() => setShouldHighlight(false), 1500);
+      }, 50); // Small delay to ensure subtasks are rendered
+    }, 0);
+  }, [activeTaskId]); // Only depend on activeTaskId
+
 
   /* ----------------------------- UI ------------------------------- */
   return (
@@ -558,9 +652,9 @@ export default function HomePage() {
                         bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
             >
               <option value="">All Priorities</option>
-              <option value="High">High</option>
-              <option value="Medium">Medium</option>
-              <option value="Low">Low</option>
+              <option value="HIGH">High</option>
+              <option value="MEDIUM">Medium</option>
+              <option value="LOW">Low</option>
             </select>
           </div>
 

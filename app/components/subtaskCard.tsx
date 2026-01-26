@@ -16,9 +16,9 @@ interface Props {
 
 // Constants for better organization
 const PRIORITY_COLORS = {
-  Low: "bg-green-100 text-green-800 border-green-200",
-  Medium: "bg-yellow-100 text-yellow-800 border-yellow-200",
-  High: "bg-red-100 text-red-800 border-red-200",
+  LOW: "bg-green-100 text-green-800 border-green-200",
+  MEDIUM: "bg-yellow-100 text-yellow-800 border-yellow-200",
+  HIGH: "bg-red-100 text-red-800 border-red-200",
 } as const;
 
 const TIME_COLORS = {
@@ -158,7 +158,12 @@ export default function SubtaskCard({
           {(["Low", "Medium", "High"] as Priority[]).map((p) => (
             <button
               key={p}
-              onClick={() => update({ priority: p })}
+              // onClick={() => update({ priority: p })}
+              onClick={() => {
+                // Toggle: if clicking the same priority, set to Medium (default)
+                const newPriority = subtask.priority === p ? "Medium" : p;
+                update({ priority: newPriority });
+              }}
               className={`w-2 h-2 rounded-full transition-colors ${
                 p === subtask.priority 
                   ? PRIORITY_COLORS[p].split(' ')[0] 

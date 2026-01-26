@@ -1,4 +1,5 @@
 "use client";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { UiSubtask, PersistedSubtask } from "../types/subtask";
 
@@ -8,11 +9,12 @@ interface Params {
   toPersisted: (items: UiSubtask[]) => PersistedSubtask[];
   onServerUpdate: (updatedTask: any) => void;
   onRollback?: (items: UiSubtask[]) => void;
-  userEditedRef?: React.MutableRefObject<boolean>;
   onSubtaskSaved?: () => void;
+  isReorderingRef: React.MutableRefObject<boolean>;
+  userEditedRef: React.MutableRefObject<boolean>; // Add this back
 }
 
-const AUTOSAVE_DELAY = 500;
+const AUTOSAVE_DELAY = 800;
 const MIN_SAVING_DURATION = 500;
 
 export function useAutosaveSubtasks({
@@ -21,43 +23,71 @@ export function useAutosaveSubtasks({
   toPersisted,
   onServerUpdate,
   onRollback,
-  userEditedRef,
-  onSubtaskSaved
+  onSubtaskSaved,
+  isReorderingRef,
+  userEditedRef, // Add this
 }: Params) {
+  /* ----------------------------- refs ----------------------------- */
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hydratedRef = useRef(false);
-  const lastSavedRef = useRef<string>("");
+  const lastSavedContentRef = useRef<string>("");
+  const lastSavedOrderRef = useRef<string>("");
   const pendingSnapshotRef = useRef<string | null>(null);
   const savingStartRef = useRef<number>(0);
-  const lastSavedOrderRef = useRef<string>("");
   const lastGoodSubtasksRef = useRef<UiSubtask[]>([]);
 
-
-
+  /* ----------------------------- state ---------------------------- */
   const [saving, setSaving] = useState(false);
   const [hasPendingChanges, setHasPendingChanges] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  /* ---------------------------- helpers --------------------------- */
   const contentSnapshot = (items: UiSubtask[]) =>
     JSON.stringify(
-      items.map(({ title, description, estimateMinutes, completed, priority, orderIndex }) => ({
-        title,
-        description,
-        estimateMinutes,
-        completed,
-        priority,
-        orderIndex
-      })
-    )
-  );
+      items.map(
+        ({
+          title,
+          description,
+          estimateMinutes,
+          completed,
+          priority,
+        }) => ({
+          title,
+          description,
+          estimateMinutes,
+          completed,
+          priority,
+        })
+      )
+    );
 
   const orderSnapshot = (items: UiSubtask[]) =>
     JSON.stringify(items.map((s) => s.orderIndex));
 
+  /* ---------------------------- persist --------------------------- */
   const persist = useCallback(
-    (items: UiSubtask[], snapshot: string) => {
-      const combinedSnapshot = snapshot + "|" + orderSnapshot(items);
-      if (!activeTaskId || pendingSnapshotRef.current === combinedSnapshot) return;
+    (items: UiSubtask[], contentSnap: string) => {
+      // Don't save if user hasn't edited (except for initial hydration)
+      if (!userEditedRef.current && hydratedRef.current) {
+        return;
+      }
+
+      // Don't autosave while actively reordering
+      if (isReorderingRef.current) {
+        return;
+      }
+
+      if (!activeTaskId) {
+        return;
+      }
+
+      const taskIdAtSchedule = activeTaskId;
+      const orderSnap = orderSnapshot(items);
+      const combinedSnapshot = `${contentSnap}|${orderSnap}`;
+
+      if (pendingSnapshotRef.current === combinedSnapshot) {
+        return;
+      }
 
       pendingSnapshotRef.current = combinedSnapshot;
       setHasPendingChanges(true);
@@ -66,115 +96,152 @@ export function useAutosaveSubtasks({
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
 
       timeoutRef.current = setTimeout(async () => {
+        if (taskIdAtSchedule !== activeTaskId) {
+          pendingSnapshotRef.current = null;
+          setSaving(false);
+          setHasPendingChanges(false);
+          return;
+        }
+
         savingStartRef.current = Date.now();
         setSaveError(null);
 
         try {
-          console.log("Saving subtasks for task:", activeTaskId);
-          console.log("Subtasks being saved:", items);
-          
-          const res = await fetch(`/api/subtasks/breakdown?id=${activeTaskId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ subtasks: toPersisted(items) }),
-          });
+          const persisted = toPersisted(items);
 
-          console.log("Save response status:", res.status);
-          
+          const res = await fetch(
+            `/api/subtasks/breakdown?id=${activeTaskId}`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ subtasks: persisted }),
+            }
+          );
+
+          if (res.status === 429) {
+            const error = "Rate limit reached. Will retry automatically.";
+            pendingSnapshotRef.current = null;
+            setSaving(false);
+            setHasPendingChanges(false);
+            setSaveError(error);
+            return;
+          }
+
           if (!res.ok) {
             const errorText = await res.text();
-            console.error("Save error:", errorText);
-            throw new Error(`Failed to save subtasks: ${res.status} - ${errorText}`);
+            throw new Error(`Save failed: ${res.status} - ${errorText}`);
           }
 
           const response = await res.json();
-          console.log("Save response:", response);
-          
-          // Extract task data from response
-          const updatedTask = response.data;
-          
-          if (!updatedTask) {
-            throw new Error("No task data in response");
+
+          if (!response.success || !response.data) {
+            throw new Error("Invalid response from server");
           }
 
-          lastSavedRef.current = snapshot;
-          lastSavedOrderRef.current = orderSnapshot(items);
-          pendingSnapshotRef.current = null;
+          const updatedTask = response.data;
+          
+          // Update refs
+          lastSavedContentRef.current = contentSnap;
+          lastSavedOrderRef.current = orderSnap;
           lastGoodSubtasksRef.current = items.map((s) => ({ ...s }));
+          pendingSnapshotRef.current = null;
+
+          // Reset user edited flag
+          userEditedRef.current = false;
 
           onServerUpdate(updatedTask);
 
+          // Ensure minimum saving duration for better UX
           const elapsed = Date.now() - savingStartRef.current;
           const remaining = MIN_SAVING_DURATION - elapsed;
-          const finishSaving = () => {
+
+          setTimeout(() => {
             setSaving(false);
             setHasPendingChanges(false);
-            if (onSubtaskSaved) onSubtaskSaved();
-          };
+            onSubtaskSaved?.();
+          }, Math.max(0, remaining));
 
-          if (remaining > 0) {
-            setTimeout(finishSaving, remaining);
-          } else {
-            finishSaving();
-          }
         } catch (err: any) {
-          console.error("Save failed:", err);
-          setSaving(false);
-          setSaveError(err.message || "Failed to save changes");
           pendingSnapshotRef.current = null;
+          setSaving(false);
+          setHasPendingChanges(false);
+          setSaveError(err?.message ?? "Failed to save changes");
 
-          // rollback optimistic changes locally
+          // Rollback if we have a previous good state
           if (lastGoodSubtasksRef.current.length && onRollback) {
-            console.log("Rolling back to last good state");
             onRollback(lastGoodSubtasksRef.current);
           }
         }
       }, AUTOSAVE_DELAY);
     },
-    [activeTaskId, onServerUpdate, toPersisted, onRollback, onSubtaskSaved]
+    [
+      activeTaskId,
+      toPersisted,
+      onServerUpdate,
+      onRollback,
+      onSubtaskSaved,
+      isReorderingRef,
+      userEditedRef,
+    ]
   );
 
-  const retrySave = useCallback(() => {
-    if (!activeTaskId) return;
-
-    const snapshot = contentSnapshot(subtasks);
-
-    // Clear pending guard so retry is allowed
-    pendingSnapshotRef.current = null;
-
-    persist(subtasks, snapshot);
-  }, [activeTaskId, subtasks, persist]);
-
-
-
+  /* -------------------------- autosave ---------------------------- */
   useEffect(() => {
     if (!activeTaskId) return;
 
+    // Initial hydration
     if (!hydratedRef.current) {
       hydratedRef.current = true;
-      lastSavedRef.current = contentSnapshot(subtasks);
+      lastSavedContentRef.current = contentSnapshot(subtasks);
       lastSavedOrderRef.current = orderSnapshot(subtasks);
       lastGoodSubtasksRef.current = subtasks.map((s) => ({ ...s }));
-
       return;
     }
 
-    const snapshot = contentSnapshot(subtasks);
-    const currentOrder = orderSnapshot(subtasks);
+    // Don't save during reordering
+    if (isReorderingRef.current) {
+      return;
+    }
 
-    const contentUnchanged = snapshot === lastSavedRef.current;
-    const orderUnchanged = currentOrder === lastSavedOrderRef.current;
+    // Don't save if user hasn't edited
+    if (!userEditedRef.current) {
+      return;
+    }
 
-    if (contentUnchanged && orderUnchanged) return;
+    const contentSnap = contentSnapshot(subtasks);
+    const orderSnap = orderSnapshot(subtasks);
 
-    persist(subtasks, snapshot);
-  }, [subtasks, activeTaskId, persist]);
+    const contentUnchanged = contentSnap === lastSavedContentRef.current;
+    const orderUnchanged = orderSnap === lastSavedOrderRef.current;
 
+    if (contentUnchanged && orderUnchanged) {
+      return;
+    }
+
+    persist(subtasks, contentSnap);
+  }, [subtasks, activeTaskId, persist, isReorderingRef, userEditedRef]);
+
+  /* --------------------------- cleanup ---------------------------- */
   useEffect(() => {
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);
 
-  return { saving, hasPendingChanges, saveError, retrySave };
+  /* ---------------------------- api ------------------------------- */
+  const retrySave = useCallback(() => {
+    if (!activeTaskId) return;
+    if (isReorderingRef.current) return;
+
+    pendingSnapshotRef.current = null;
+    userEditedRef.current = true; // Mark as edited
+    persist(subtasks, contentSnapshot(subtasks));
+  }, [activeTaskId, subtasks, persist, isReorderingRef, userEditedRef]);
+
+  return {
+    saving,
+    hasPendingChanges,
+    saveError,
+    retrySave,
+  };
 }
