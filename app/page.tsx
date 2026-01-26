@@ -273,13 +273,41 @@ const updateSubtask = (updated: UiSubtask) => {
 
   /* ------------------------ Reorder Handler ------------------------ */
   const handleReorder = (next: UiSubtask[]) => {
+    console.log("🔄 handleReorder - Input:", next.map((s, i) => ({
+    index: i,
+    id: s.id,
+    _uiId: s._uiId,
+    orderIndex: s.orderIndex,
+    title: s.title
+  })));
     if (!canReorder || !activeTaskId) return;
 
     isReorderingRef.current = true;
+    // RESET userEditedRef to prevent autosave during reorder
+    userEditedRef.current = false;
 
     setSubtasks((prev) => {
       const normalized = normalizeOrder(next);
+
+      console.log("📊 After normalizeOrder:", normalized.map((s, i) => ({
+      index: i,
+      id: s.id,
+      orderIndex: s.orderIndex,
+      title: s.title
+    })));
       const diff = extractOrderDiff(prev, normalized);
+      console.log("📤 Diff to send:", diff);
+
+      // Check for duplicate orderIndex values
+    const orderIndexes = diff.map(d => d.orderIndex);
+    const hasDuplicates = new Set(orderIndexes).size !== orderIndexes.length;
+    
+    if (hasDuplicates) {
+      console.error("❌ Duplicate orderIndex values detected:", orderIndexes);
+      alert("Error: Duplicate order indexes detected. Please try reordering again.");
+      isReorderingRef.current = false;
+      return prev;
+    }
 
       if (!diff.length) {
         isReorderingRef.current = false;

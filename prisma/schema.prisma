@@ -32,5 +32,4 @@ model Subtask {
   updatedAt       DateTime? @updatedAt
 
   @@index([taskId, orderIndex])
-  @@unique([taskId, orderIndex])
 }
