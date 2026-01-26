@@ -145,25 +145,48 @@ export default function HomePage() {
       .map((s) => ({ id: s.id!, orderIndex: s.orderIndex }));
   };
 
-  const updateSubtask = (updated: UiSubtask) => {
+  /* ---------------------------- Helpers ---------------------------- */
+// Helper function to check if a subtask has meaningful changes
+const hasMeaningfulChange = (current: UiSubtask, updated: UiSubtask): boolean => {
+  // Note: We compare priority case-insensitively since parent normalizes to uppercase
+  if (current.priority.toUpperCase() !== updated.priority.toUpperCase()) return true;
+  if (current.title !== updated.title) return true;
+  if (current.description !== updated.description) return true;
+  if (current.completed !== updated.completed) return true;
+  if (current.estimateMinutes !== updated.estimateMinutes) return true;
+  return false;
+};
+
+/* ------------------------ Update Handler ------------------------ */
+const updateSubtask = (updated: UiSubtask) => {
   console.log("🔄 updateSubtask called");
   
-  // Normalize priority to uppercase
+  // Find the current subtask
+  const currentSubtask = subtasks.find(s => s._uiId === updated._uiId);
+  
+  if (!currentSubtask) {
+    console.error("Subtask not found");
+    return;
+  }
+  
   const normalizedUpdated = {
     ...updated,
     priority: updated.priority.toUpperCase() as Priority,
   };
   
-  console.log("Normalized priority:", {
-    old: updated.priority,
-    new: normalizedUpdated.priority,
-  });
-  
-  userEditedRef.current = true;
+  // Update local state
   setSubtasks((prev) => 
     prev.map((s) => (s._uiId === normalizedUpdated._uiId ? normalizedUpdated : s))
   );
-  setSavingSubtaskId(normalizedUpdated._uiId);
+  
+  // Only trigger save if something actually changed
+  if (hasMeaningfulChange(currentSubtask, normalizedUpdated)) {
+    userEditedRef.current = true;
+    setSavingSubtaskId(normalizedUpdated._uiId);
+    console.log("Changes detected, setting saving state");
+  } else {
+    console.log("No meaningful changes detected, skipping save");
+  }
 };
 
   const deleteSubtask = (uiId: string) => {

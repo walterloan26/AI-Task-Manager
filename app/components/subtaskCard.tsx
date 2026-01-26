@@ -125,7 +125,7 @@ export default function SubtaskCard({
               Saving…
             </span>
           )}
-
+          
           {/* Reorder handle */}
           {showReorderHandle && dragControls && (
             <button
@@ -158,19 +158,22 @@ export default function SubtaskCard({
           {(["Low", "Medium", "High"] as Priority[]).map((p) => (
             <button
               key={p}
-              // onClick={() => update({ priority: p })}
-              onClick={() => {
-                // Toggle: if clicking the same priority, set to Medium (default)
-                const newPriority = subtask.priority === p ? "Medium" : p;
-                update({ priority: newPriority });
+              onClick={(e) => {
+                e.stopPropagation();
+                const buttonPriority = p.toUpperCase() as Priority;
+                const currentPriority = subtask.priority.toUpperCase();
+                const willUpdate = buttonPriority !== currentPriority;
+
+                if (willUpdate) update({ priority: p })
               }}
-              className={`w-2 h-2 rounded-full transition-colors ${
-                p === subtask.priority 
-                  ? PRIORITY_COLORS[p].split(' ')[0] 
-                  : 'bg-gray-200 hover:bg-gray-300'
-              }`}
+
+              className={`w-2 h-2 rounded-full transition-colors 
+                ${p.toUpperCase() === subtask.priority.toUpperCase()  // Compare in same case
+                  ? `${PRIORITY_COLORS[p.toUpperCase()].split(' ')[0]} opacity-100`
+                  : 'bg-gray-200 hover:bg-gray-300 opacity-70 hover:opacity-100'
+                } ${p.toUpperCase() === subtask.priority.toUpperCase() ? 'cursor-default' : 'cursor-pointer'}`}
               aria-label={`Set priority to ${p}`}
-              title={`Set priority to ${p}`}
+              title={`Set priority to ${p}${subtask.priority === p ? ' (current)' : ''}`}
             />
           ))}
         </div>
