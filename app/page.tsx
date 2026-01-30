@@ -38,6 +38,7 @@ export default function HomePage() {
 
   /* -------------------------- Connectivity -------------------------- */
   const online = useOnlineStatus();
+  const { enqueue } = useOfflineOrderQueue(online);
 
   /* ------------------------- Transformers -------------------------- */
   
@@ -308,6 +309,16 @@ const updateSubtask = (updated: UiSubtask) => {
         id: s.id!,
         orderIndex: s.orderIndex,
       }));
+    
+    if (!online) {
+      enqueue({
+        taskId: activeTaskId,
+        updates: payload,
+        timestamp: Date.now(),
+      });
+      isReorderingRef.current = false;
+      return;
+    }
 
     fetch("/api/subtasks/reorder", {
       method: "PATCH",
