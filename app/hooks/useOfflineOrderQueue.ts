@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback  } from "react";
 
 type OrderUpdate = {
   taskId: string;
@@ -31,7 +31,7 @@ export function useOfflineOrderQueue(online: boolean) {
     saveQueue(queueRef.current);
   };
 
-  const flush = async () => {
+  const flush = useCallback(async () => {
     if (!online) return;
     if (flushingRef.current) return;
     if (queueRef.current.length === 0) return;
@@ -42,10 +42,13 @@ export function useOfflineOrderQueue(online: boolean) {
       while (queueRef.current.length) {
         const next = queueRef.current[0];
 
-        const res = await fetch("/api/subtasks/order", {
+        const res = await fetch("/api/subtasks/reorder", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ updates: next.updates }),
+          body: JSON.stringify({
+            taskId: next.taskId,
+            subtasks: next.updates,
+          }),
         });
 
         if (!res.ok) throw new Error("Order flush failed");
@@ -58,12 +61,11 @@ export function useOfflineOrderQueue(online: boolean) {
     } finally {
       flushingRef.current = false;
     }
-  };
+  }, [online])
 
-  // Auto-flush when coming back online
   useEffect(() => {
-    if (online) flush();
-  }, [online]);
+      if (online) flush();
+    }, [online, flush]);
 
-  return { enqueue };
+    return { enqueue };
 }
