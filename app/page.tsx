@@ -124,13 +124,16 @@ export default function HomePage() {
     });
 
   const isBaseView = filter.completed === undefined && filter.priority === undefined && sort === null;
-    const canReorder = Boolean(
-    activeTaskId &&      // Must have a task selected
-    isBaseView &&        // No filters/sorting active
-    online &&            // Must be online
-    !saving &&           // Not currently saving
-    !hasPendingChanges   // No unsaved changes
-  );
+//   const canReorder = Boolean(
+//   activeTaskId &&      // Must have a task selected
+//   isBaseView &&        // No filters/sorting active
+//   online &&            // Must be online
+//   !saving &&           // Not currently saving
+//   !hasPendingChanges   // No unsaved changes
+// );
+
+  const canReorder = true;
+  const canSyncReorder = online;
 
 
   /* ------------------------ Helpers ------------------------------- */
@@ -276,7 +279,7 @@ const updateSubtask = (updated: UiSubtask) => {
 
   /* ------------------------ Reorder Handler ------------------------ */
   const handleReorder = (newOrder: UiSubtask[]) => {
-    if (!canReorder || !activeTaskId || !online) return;
+    if (!canReorder || !activeTaskId ) return;
   
     isReorderingRef.current = true;
 
@@ -571,10 +574,6 @@ const updateSubtask = (updated: UiSubtask) => {
         />
       )}
 
-      {!online && activeTaskId && (
-        <p className="text-xs text-yellow-600">Offline — editing is available, reordering is disabled</p>
-      )}
-
       {/* New Task Input */}
       <div className="space-y-2">
         <textarea
@@ -775,7 +774,7 @@ const updateSubtask = (updated: UiSubtask) => {
             
             {!online && (
               <div className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 p-2 rounded border border-amber-200 dark:border-amber-800">
-                <strong>Offline:</strong> Reordering disabled. Changes will sync when you're back online.
+                <strong>Offline:</strong> reordering is available and will sync when you’re back online.
               </div>
             )}
 

@@ -27,6 +27,9 @@ export function useOfflineOrderQueue(online: boolean) {
   const flushingRef = useRef(false);
 
   const enqueue = (update: OrderUpdate) => {
+    queueRef.current = queueRef.current.filter(
+      (u) => u.taskId !== update.taskId
+    );
     queueRef.current.push(update);
     saveQueue(queueRef.current);
   };
