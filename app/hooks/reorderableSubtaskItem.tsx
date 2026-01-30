@@ -10,9 +10,6 @@ interface ReorderableSubtaskItemProps {
   saving?: boolean;
 }
 
-// Global map to persist dragControls
-const dragControlsMap = new Map<string, ReturnType<typeof useDragControls>>();
-
 export default function ReorderableSubtaskItem({
   subtask,
   canReorder,
@@ -20,27 +17,35 @@ export default function ReorderableSubtaskItem({
   onDelete,
   saving,
 }: ReorderableSubtaskItemProps) {
-  // ✅ Always call the hook      
   const dragControls = useDragControls();
 
-  // Store in the map if it doesn't exist
-  if (!dragControlsMap.has(subtask._uiId)) {
-    dragControlsMap.set(subtask._uiId, dragControls);
-  }
-
-  // Use the stored dragControls from the map
-  const persistentDragControls = dragControlsMap.get(subtask._uiId)!;
-
   return (
-    <Reorder.Item value={subtask} dragListener={false} dragControls={persistentDragControls}>
+    <Reorder.Item 
+      value={subtask}
+      id={subtask._uiId} // Important for drag identification
+      dragListener={false} // Disable drag on the whole item
+      dragControls={dragControls}
+      style={{ 
+        listStyle: "none",
+        position: "relative",
+        zIndex: 1 // Ensures dragged item appears above others
+      }}
+      className="focus:outline-none"
+      whileDrag={{
+        zIndex: 100, // Even higher when actively dragging
+        scale: 1.02, // Slight visual feedback
+        boxShadow: "0 10px 25px rgba(0, 0, 0, 0.1)" // Shadow when dragging
+      }}
+    >
       <SubtaskCard
         subtask={subtask}
         onChange={onChange}
         onDelete={onDelete}
         saving={saving}
         showReorderHandle={canReorder}
-        dragControls={persistentDragControls}
+        dragControls={canReorder ? dragControls : undefined}
       />
+      
     </Reorder.Item>
   );
 }

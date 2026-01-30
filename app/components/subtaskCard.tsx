@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { motion, useDragControls } from "framer-motion";
+import { useDragControls } from "framer-motion";
 import { UiSubtask, Priority } from "../types/subtask";
 import { useNumberInput } from "../hooks/numberInputs";
 
@@ -84,18 +84,13 @@ export default function SubtaskCard({
 
   /* ------------------------------ UI ------------------------------- */
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -6 }}
-      transition={{ duration: 0.2 }}
+    // CHANGED: Replaced motion.div with regular div to fix drag conflict
+    <div
       className={`rounded-2xl border bg-white p-4 space-y-3 transition-all ${
         focused ? "border-gray-900 shadow-md" : "border-gray-200"
       }`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      // Removed whileHover scale effect to prevent movement on delete click
     >
       {/* Completion + Title */}
       <div className="flex items-center gap-2">
@@ -130,9 +125,13 @@ export default function SubtaskCard({
           {showReorderHandle && dragControls && (
             <button
               aria-label={`Drag to reorder "${subtask.title}"`}
-              onPointerDown={(e) => dragControls.start(e)}
-              className="ml-2 flex items-center justify-center cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 transition-colors"
+              onPointerDown={(e) => {
+                e.preventDefault(); // Prevent text selection
+                dragControls.start(e);
+              }}
+              className="ml-2 flex items-center justify-center cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 transition-colors z-10"
               type="button"
+              style={{ touchAction: "none" }}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -254,6 +253,6 @@ export default function SubtaskCard({
           </div>
         </div>
       </div>
-    </motion.div>
+    </div> // CHANGED: End div instead of motion.div
   );
 }

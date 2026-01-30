@@ -8,8 +8,8 @@ const reorderSchema = z.object({
   taskId: z.string(),
   subtasks: z.array(
     z.object({
-      id: z.string(),
-      orderIndex: z.number().int()
+      id: z.string().min(1),
+      orderIndex: z.number().int().nonnegative()
     })
   )
 })
@@ -41,14 +41,18 @@ export async function PATCH(req: Request) {
 
     const { taskId, subtasks } = validation.data
 
+
     await prisma.$transaction(
-      subtasks.map((s) =>
-        prisma.subtask.update({
-          where: { id: s.id },
-          data: { orderIndex: s.orderIndex }
-        })
-      )
-    )
+  subtasks.map((s) =>
+    prisma.subtask.update({
+      where: {
+        id: s.id,
+        taskId, // 🔒 safety: prevents cross-task corruption
+      },
+      data: { orderIndex: s.orderIndex },
+    })
+  )
+)
 
     return NextResponse.json({ success: true })
   } catch (err) {

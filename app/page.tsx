@@ -11,6 +11,8 @@ import ReorderableSubtaskItem from "./hooks/reorderableSubtaskItem";
 import SkeletonSubtaskCard from "./components/SkeletonSubtaskCard"; 
 import SkeletonTaskList from "./components/SkeletonTaskList"; 
 import ThemeToggle from "./components/ThemeToggle";
+import { nanoid } from "nanoid";
+
 
 /* ------------------- HomePage ------------------- */
 export default function HomePage() {
@@ -34,35 +36,22 @@ export default function HomePage() {
   const isReorderingRef = useRef(false);
   const stableIdMap = useRef(new Map<string, string>());
 
-
   /* -------------------------- Connectivity -------------------------- */
   const online = useOnlineStatus();
-  const { enqueue } = useOfflineOrderQueue(online);
-
-  /* ------------------------ Derived Flags --------------------------- */
-  const isBaseView = filter.completed === undefined && filter.priority === undefined && sort === null;
-  const canReorder = Boolean(activeTaskId) && isBaseView && online;
 
   /* ------------------------- Transformers -------------------------- */
   
  const toUi = useCallback(
   (items: PersistedSubtask[] | undefined | null): UiSubtask[] => {
-    console.log("🔄 toUi called with items:", items?.length || 0);
-    console.log("📊 stableIdMap size:", stableIdMap.current.size);
-    console.log("📊 Items IDs:", items?.map(s => s.id));
     
     return (items || []).map((s, index) => {
       let uiId = stableIdMap.current.get(s.id);
-      const hadUiId = !!uiId;
       
       if (!uiId) {
         uiId = crypto.randomUUID();
         stableIdMap.current.set(s.id, uiId);
-        console.log(`✨ Created new UI ID for ${s.id}: ${uiId}`);
-      } else {
-        console.log(`✅ Reusing UI ID for ${s.id}: ${uiId}`);
       }
-      
+        
       return {
         ...s,
         _uiId: uiId,
@@ -88,6 +77,7 @@ export default function HomePage() {
     }));
 
   /* --------------------------- Fetching ---------------------------- */
+
   useEffect(() => {
     setLoadingTasks(true);
     fetch("/api/subtasks/breakdown")
@@ -98,10 +88,6 @@ export default function HomePage() {
         return res.json();
       })
       .then((data) => {
-        // Fix: Your API returns { success: true, data: [], count: 0 }
-        // But your code expects { tasks: [] }
-        console.log("API Response:", data); // Debug log
-        
         // Ensure tasks have subtasks array
         const tasksWithSubtasks = (data.tasks || data.data || []).map((task: any) => ({
           ...task,
@@ -117,6 +103,8 @@ export default function HomePage() {
         setLoadingTasks(false);
       });
   }, []);
+
+  
 
   /* --------------------------- Autosave ---------------------------- */
   const { saving, hasPendingChanges, saveError, retrySave } =
@@ -134,6 +122,15 @@ export default function HomePage() {
       onRollback: (items) => setSubtasks(items),
     });
 
+  const isBaseView = filter.completed === undefined && filter.priority === undefined && sort === null;
+    const canReorder = Boolean(
+    activeTaskId &&      // Must have a task selected
+    isBaseView &&        // No filters/sorting active
+    online &&            // Must be online
+    !saving &&           // Not currently saving
+    !hasPendingChanges   // No unsaved changes
+  );
+
 
   /* ------------------------ Helpers ------------------------------- */
   const normalizeOrder = (items: UiSubtask[]) => items.map((s, i) => ({ ...s, orderIndex: i }));
@@ -141,8 +138,13 @@ export default function HomePage() {
   const extractOrderDiff = (prev: UiSubtask[], next: UiSubtask[]) => {
     const prevMap = new Map(prev.filter((s) => s.id).map((s) => [s.id!, s.orderIndex]));
     return next
-      .filter((s) => s.id && prevMap.get(s.id) !== s.orderIndex)
-      .map((s) => ({ id: s.id!, orderIndex: s.orderIndex }));
+    .filter((s) => {
+      return s.id && prevMap.get(s.id) !== s.orderIndex
+    })
+    .map((s) => ({
+      id: s.id!,
+      orderIndex: s.orderIndex
+    }))
   };
 
   /* ---------------------------- Helpers ---------------------------- */
@@ -200,7 +202,7 @@ const updateSubtask = (updated: UiSubtask) => {
     setSubtasks((prev) => [
       ...prev,
       {
-        _uiId: crypto.randomUUID(),
+        _uiId: nanoid(),
         title: "",
         description: "",
         estimateMinutes: 30,
@@ -272,84 +274,52 @@ const updateSubtask = (updated: UiSubtask) => {
   const visibleSubtasks = applySort(applyFilters([...subtasks].sort((a, b) => a.orderIndex - b.orderIndex)));
 
   /* ------------------------ Reorder Handler ------------------------ */
-  const handleReorder = (next: UiSubtask[]) => {
-    console.log("🔄 handleReorder - Input:", next.map((s, i) => ({
-    index: i,
-    id: s.id,
-    _uiId: s._uiId,
-    orderIndex: s.orderIndex,
-    title: s.title
-  })));
-    if (!canReorder || !activeTaskId) return;
-
+  const handleReorder = (newOrder: UiSubtask[]) => {
+    if (!canReorder || !activeTaskId || !online) return;
+  
     isReorderingRef.current = true;
-    // RESET userEditedRef to prevent autosave during reorder
-    userEditedRef.current = false;
 
-    setSubtasks((prev) => {
-      const normalized = normalizeOrder(next);
+    const withOrder = newOrder.map((s, index) => ({
+      ...s,
+      orderIndex: index,
+  }));
 
-      console.log("📊 After normalizeOrder:", normalized.map((s, i) => ({
-      index: i,
-      id: s.id,
-      orderIndex: s.orderIndex,
-      title: s.title
-    })));
-      const diff = extractOrderDiff(prev, normalized);
-      console.log("📤 Diff to send:", diff);
+    // 1. Update UI immediately
+    setSubtasks(withOrder);
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id !== activeTaskId
+          ? t
+          : {
+              ...t,
+              subtasks: withOrder.map((s) => ({
+                ...s,
+                // remove UI-only fields
+                _uiId: undefined,
+              })),
+            }
+      )
+    );
 
-      // Check for duplicate orderIndex values
-    const orderIndexes = diff.map(d => d.orderIndex);
-    const hasDuplicates = new Set(orderIndexes).size !== orderIndexes.length;
-    
-    if (hasDuplicates) {
-      console.error("❌ Duplicate orderIndex values detected:", orderIndexes);
-      alert("Error: Duplicate order indexes detected. Please try reordering again.");
-      isReorderingRef.current = false;
-      return prev;
-    }
+    // 2. Persist
+    const payload = withOrder
+      .filter(s => s.id)
+      .map(s => ({
+        id: s.id!,
+        orderIndex: s.orderIndex,
+      }));
 
-      if (!diff.length) {
-        isReorderingRef.current = false;
-        return prev;
-      }
-
-      // Persist order (online)
-      if (online) {
-        fetch("/api/subtasks/reorder", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            taskId: activeTaskId,
-            subtasks: diff,
-          }),
-        }).catch((err) => {
-          console.error("Reorder failed, enqueueing", err);
-          enqueue({
-            taskId: activeTaskId,
-            updates: diff,
-            timestamp: Date.now(),
-          });
-        });
-      } else {
-        enqueue({
-          taskId: activeTaskId,
-          updates: diff,
-          timestamp: Date.now(),
-        });
-      }
-
-      return normalized;
-    });
-
-    // Release autosave suppression on next tick
-    queueMicrotask(() => {
+    fetch("/api/subtasks/reorder", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        taskId: activeTaskId,
+        subtasks: payload,
+      }),
+    }).finally(() => {
       isReorderingRef.current = false;
     });
   };
-
-
-
 
   /* ------------------------ Save Status ---------------------------- */
   const saveStatus = !activeTaskId
@@ -432,17 +402,18 @@ const updateSubtask = (updated: UiSubtask) => {
     // Step 2: Prepare subtasks in a microtask (next tick)
     setTimeout(() => {
       const taskSubtasks = Array.isArray(task.subtasks) ? task.subtasks : [];
-      const uiSubtasks = taskSubtasks.map((s) => ({
-        ...s,
-        _uiId: crypto.randomUUID(),
-        completed: s.completed ?? false,
-        priority: s.priority ?? "Medium",
-        orderIndex: s.orderIndex ?? 0,
-        estimateMinutes: Math.max(1, s.estimateMinutes || 1),
-      }));
+      setSubtasks(toUi(taskSubtasks));
+      // const uiSubtasks = taskSubtasks.map((s) => ({
+      //   ...s,
+      //   _uiId: crypto.randomUUID(),
+      //   completed: s.completed ?? false,
+      //   priority: s.priority ?? "Medium",
+      //   orderIndex: s.orderIndex ?? 0,
+      //   estimateMinutes: Math.max(1, s.estimateMinutes || 1),
+      // }));
       
-      // Set subtasks
-      setSubtasks(uiSubtasks);
+      // // Set subtasks
+      // setSubtasks(uiSubtasks);
       
       // Reset edit flag
       // userEditedRef.current = false;
@@ -468,6 +439,12 @@ const updateSubtask = (updated: UiSubtask) => {
       }, 50); // Small delay to ensure subtasks are rendered
     }, 0);
   }, [activeTaskId]); // Only depend on activeTaskId
+
+  const listToRender = isBaseView
+  ? subtasks
+  : visibleSubtasks;
+
+
 
 
   /* ----------------------------- UI ------------------------------- */
@@ -775,46 +752,61 @@ const updateSubtask = (updated: UiSubtask) => {
             </div>
           </motion.div>
         )}
+
+        {activeTaskId && (
+          <div className="space-y-3">
+            {/* Status Messages */}
+            {!isBaseView && (
+              <div className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 p-2 rounded border border-blue-200 dark:border-blue-800">
+                <strong>Note:</strong> Clear filters and sorting to reorder subtasks.
+              </div>
+            )}
+            
+            {!online && (
+              <div className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 p-2 rounded border border-amber-200 dark:border-amber-800">
+                <strong>Offline:</strong> Reordering disabled. Changes will sync when you're back online.
+              </div>
+            )}
+
+            {/* Drag Container - Only enabled in base view */}
+            <Reorder.Group 
+              axis="y" 
+              values={subtasks}
+              onReorder={handleReorder}
+              className="space-y-3"
+              // style={{ position: "relative" }}
+            >
+                {subtasks.map((s) => (
+                  <ReorderableSubtaskItem
+                    key={s._uiId}
+                    subtask={s}
+                    canReorder={canReorder} // Component handles visual feedback
+                    onChange={updateSubtask}
+                    onDelete={() => deleteSubtask(s._uiId)}
+                    saving={s._uiId === savingSubtaskId}
+                  />
+                ))}
+            </Reorder.Group>
+
+            {/* Add Subtask Button */}
+            {isBaseView && (
+              <button
+                onClick={addSubtask}
+                disabled={saving}
+                className={`w-full text-left text-sm transition ${
+                  saving 
+                    ? "text-gray-400 dark:text-gray-500 cursor-not-allowed" 
+                    : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300"
+                }`}
+              >
+                + Add Subtask
+              </button>
+            )}
+          </div>
+        )}
         
-        {activeTaskId && !canReorder && isBaseView && (
-          <p className="text-xs text-gray-400 dark:text-gray-500">
-            Reordering is available only in the base view, while online and not saving.
-          </p>
-        )}
-
-        <Reorder.Group axis="y" values={visibleSubtasks} onReorder={handleReorder}>
-          {visibleSubtasks.map((s) => (
-            <ReorderableSubtaskItem
-              key={s._uiId}
-              subtask={s}
-              canReorder={canReorder}
-              onChange={updateSubtask}
-              onDelete={() => deleteSubtask(s._uiId)}
-              saving={s._uiId === savingSubtaskId}
-            />
-          ))}
-        </Reorder.Group>
-
-        {!canReorder && activeTaskId && (
-          <p className="text-xs text-gray-400 dark:text-gray-500 italic">
-            Reordering is available only in the base view while online and not saving
-          </p>
-        )}
-
-        {activeTaskId && isBaseView && (
-          <button
-            onClick={addSubtask}
-            disabled={saving}
-            className={`w-full text-left text-sm transition ${
-              saving 
-                ? "text-gray-400 dark:text-gray-500 cursor-not-allowed" 
-                : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300"
-            }`}
-          >
-            + Add Subtask
-          </button>
-        )}
       </motion.section>
+
       {/* Back to Top Button - Shows when scrolled down */}
       {activeTaskId && (
         <motion.button
