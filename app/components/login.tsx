@@ -1,7 +1,7 @@
 import { signIn, signOut, useSession } from "next-auth/react";
 
 export default function Login() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
 
   if (session) {
     return (
@@ -11,6 +11,9 @@ export default function Login() {
         <button onClick={() => signOut()}>Logout</button>
       </div>
     );
+  }
+  if (status === "loading") {
+    return <p>Loading...</p>
   }
 
   return (
@@ -22,7 +25,15 @@ export default function Login() {
           e.preventDefault();
           const email = (e.currentTarget.email as HTMLInputElement).value;
           const password = (e.currentTarget.password as HTMLInputElement).value;
-          await signIn("credentials", { email, password });
+          const res = await signIn("credentials", {
+            email,
+            password,
+            redirect: false,
+          })
+          if (res?.error) {
+            alert("Invalid credentials")
+          }
+          if (!email || !password) return;
         }}
       >
         <input name="email" type="email" placeholder="Email" />

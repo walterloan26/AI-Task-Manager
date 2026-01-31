@@ -1,4 +1,4 @@
-"use client";
+
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, Reorder, motion } from "framer-motion";
@@ -12,10 +12,17 @@ import SkeletonSubtaskCard from "./components/SkeletonSubtaskCard";
 import SkeletonTaskList from "./components/SkeletonTaskList"; 
 import ThemeToggle from "./components/ThemeToggle";
 import { nanoid } from "nanoid";
+import { getServerSession } from "next-auth";
+import { redirect } from "next/navigation";
+import { authOptions } from "@/app/api/auth/[...nextauth]/nextAuth";
 
 
 /* ------------------- HomePage ------------------- */
-export default function HomePage() {
+export default async function HomePage() {
+  const session = await getServerSession(authOptions)
+  if (!session) {
+    redirect("/login");
+  }
   /* ----------------------------- State ----------------------------- */
   const [taskInput, setTaskInput] = useState("");
   const [tasks, setTasks] = useState<any[]>([]);

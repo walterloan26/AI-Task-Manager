@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client-js"
+  engineType = "binary"
 }
 
 datasource db {
@@ -11,24 +12,31 @@ model User {
   id           String   @id @default(cuid())
   name         String?
   email        String   @unique
-  passwordHash String? // optional for OAuth users
-  role         String   @default("USER")
+  image         String?
+  emailVerified DateTime?
+  lastLoginAt   DateTime?
+  passwordHash String?
+  role         String   @default("USER") // replaced enum with string
+  isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   accounts Account[]
   sessions Session[]
   tasks    Task[]
+
+  @@index([role])
+  @@index([isActive])
 }
 
 model Task {
   id           String    @id @default(cuid())
   task         String
-  complexity   String    @default("MEDIUM") // enforced in Zod
+  complexity   String    @default("MEDIUM")
   aiGenerated  Boolean   @default(false)
   aiConfidence Float?
   createdAt    DateTime  @default(now())
-  updatedAt    DateTime? @updatedAt
+  updatedAt    DateTime  @updatedAt
   subtasks     Subtask[]
   userId       String
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -40,12 +48,13 @@ model Subtask {
   description     String
   estimateMinutes Int       @default(0)
   completed       Boolean   @default(false)
-  priority        String    @default("MEDIUM") // enforced in Zod
+  priority        String    @default("MEDIUM")
   orderIndex      Int
   taskId          String
   task            Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
   createdAt       DateTime  @default(now())
-  updatedAt       DateTime? @updatedAt
+  updatedAt       DateTime  @updatedAt
+  isDeleted       Boolean  @default(false)  // Add this field
 
   @@index([taskId, orderIndex])
 }
