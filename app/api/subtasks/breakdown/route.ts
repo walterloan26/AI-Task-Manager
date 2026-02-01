@@ -8,6 +8,8 @@ import { prisma } from "@/lib/prisma";
 import { rateLimitByIP } from "@/lib/appRateLimit";
 import { generateSubtasks } from "@/lib/ai/client";
 import { initialOrder } from "@/lib/order";
+import { canUseAI } from "@/lib/ai/quota";
+
 
 import {
   subtaskSchema,
@@ -35,6 +37,122 @@ async function rateLimitRequest(req: Request, prefix: string): Promise<boolean> 
 /*                                    POST                                    */
 /* -------------------------------------------------------------------------- */
 
+// export async function POST(req: Request) {
+//   try {
+//     /* ----------------------------- Rate limit ------------------------------ */
+//     if (!(await rateLimitRequest(req, "breakdown:post"))) {
+//       return NextResponse.json(
+//         { error: "Rate limit exceeded. Please try again later." },
+//         { status: 429 }
+//       );
+//     }
+
+//     /* -------------------------- Validate request --------------------------- */
+//     const validation = validateBreakdownRequest(await req.json());
+
+//     if (!validation.success) {
+//       return NextResponse.json(
+//         {
+//           error: "Invalid request",
+//           details: validation.error.format(),
+//         },
+//         { status: 400 }
+//       );
+//     }
+
+//     const { task, complexity } = validation.data;
+
+//     const user = await prisma.user.findUnique({
+//       where: { id: session.user.id },
+//     });
+
+//     if (!user) {
+//       return NextResponse.json(
+//         { error: "User not found" },
+//         { status: 404 }
+//       );
+//     }
+
+//     const session = await getServerSession(authOptions);
+
+//     if (!session?.user?.id) {
+//       return NextResponse.json(
+//         { error: "Unauthorized" },
+//         { status: 401 }
+//       );
+//     }
+
+//     /* ------------------------------ AI layer ------------------------------- */
+//     // This is the ONLY AI call.
+//     // Mock or real is handled internally by generateSubtasks()
+//     const { subtasks, confidence } = await generateSubtasks(task);
+
+//     /* -------------------------- Persist to DB ------------------------------ */
+//     const createdTask = await prisma.task.create({
+//       data: {
+//         task,
+//         complexity: complexity?.toUpperCase(),
+//         aiGenerated: true,
+//         aiConfidence: confidence,
+//         user: {
+//           connect: {
+//             id: session.user.id,
+//           },
+//         },
+//         subtasks: {
+//           create: subtasks.map((s, index) => ({
+//             title: s.title,
+//             description: s.description,
+//             estimateMinutes: Math.max(1, s.estimateMinutes),
+//             completed: s.completed ?? false,
+//             priority: (s.priority?.toUpperCase() || "MEDIUM") as
+//               | "HIGH"
+//               | "MEDIUM"
+//               | "LOW",
+//             orderIndex: initialOrder(index),
+//           })),
+//         },
+//       },
+//       include: {
+//         subtasks: { orderBy: { orderIndex: "asc" } },
+//       },
+//     });
+
+//     return NextResponse.json(
+//       {
+//         success: true,
+//         data: createdTask,
+//       },
+//       { status: 201 }
+//     );
+//   } catch (error) {
+//     console.error("POST /api/subtasks/breakdown error:", error);
+
+//     let message = "Internal server error";
+//     let status = 500;
+
+//     if (error instanceof Error) {
+//       message = error.message;
+
+//       if (message.includes("AI")) {
+//         status = 422;
+//       }
+
+//       if (
+//         message.includes("schema") ||
+//         message.includes("does not exist")
+//       ) {
+//         message =
+//           "Database schema out of sync. Run: npx prisma db push && npx prisma generate";
+//       }
+//     }
+
+//     return NextResponse.json(
+//       { error: message, success: false },
+//       { status }
+//     );
+//   }
+// }
 export async function POST(req: Request) {
   try {
     /* ----------------------------- Rate limit ------------------------------ */
@@ -59,6 +177,8 @@ export async function POST(req: Request) {
     }
 
     const { task, complexity } = validation.data;
+
+    /* ------------------------------ Auth ---------------------------------- */
     const session = await getServerSession(authOptions);
 
     if (!session?.user?.id) {
@@ -68,12 +188,36 @@ export async function POST(req: Request) {
       );
     }
 
+    /* --------------------------- Fetch user ------------------------------- */
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+    });
+
+    if (!user) {
+      return NextResponse.json(
+        { error: "User not found" },
+        { status: 404 }
+      );
+    }
+
+    /* -------------------------- Enforce quota ----------------------------- */
+    const quota = canUseAI(user);
+
+    if (!quota.allowed) {
+      return NextResponse.json(
+        {
+          error: "Daily AI quota exceeded",
+          remaining: 0,
+        },
+        { status: 429 }
+      );
+    }
+
     /* ------------------------------ AI layer ------------------------------- */
-    // This is the ONLY AI call.
-    // Mock or real is handled internally by generateSubtasks()
+    // ⬇️ AI is NEVER called unless quota is approved
     const { subtasks, confidence } = await generateSubtasks(task);
 
-    /* -------------------------- Persist to DB ------------------------------ */
+    /* -------------------------- Persist task ------------------------------- */
     const createdTask = await prisma.task.create({
       data: {
         task,
@@ -81,9 +225,7 @@ export async function POST(req: Request) {
         aiGenerated: true,
         aiConfidence: confidence,
         user: {
-          connect: {
-            id: session.user.id,
-          },
+          connect: { id: user.id },
         },
         subtasks: {
           create: subtasks.map((s, index) => ({
@@ -104,41 +246,35 @@ export async function POST(req: Request) {
       },
     });
 
+    /* ----------------------- Increment quota ------------------------------- */
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        aiCallsToday: quota.reset ? 1 : { increment: 1 },
+        aiLastResetAt: quota.reset ? new Date() : undefined,
+      },
+    });
+
     return NextResponse.json(
       {
         success: true,
         data: createdTask,
+        quota: {
+          remaining: quota.remaining - 1,
+        },
       },
       { status: 201 }
     );
   } catch (error) {
     console.error("POST /api/subtasks/breakdown error:", error);
 
-    let message = "Internal server error";
-    let status = 500;
-
-    if (error instanceof Error) {
-      message = error.message;
-
-      if (message.includes("AI")) {
-        status = 422;
-      }
-
-      if (
-        message.includes("schema") ||
-        message.includes("does not exist")
-      ) {
-        message =
-          "Database schema out of sync. Run: npx prisma db push && npx prisma generate";
-      }
-    }
-
     return NextResponse.json(
-      { error: message, success: false },
-      { status }
+      { error: "Internal server error", success: false },
+      { status: 500 }
     );
   }
 }
+
 
 /* -------------------------------------------------------------------------- */
 /*                                    GET                                     */
