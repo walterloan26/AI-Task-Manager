@@ -1,18 +1,10 @@
+// app/dashboard/page.tsx - Updated with Navigation
 import { getAuthSession } from "@/app/api/auth/[...nextauth]/authOptions";
 import { redirect } from "next/navigation";
-import SignOutButton from "./SignOutButton";
+import NavigationLayout from "@/app/components/NavigationLayout";
 
 export default async function DashboardPage() {
   const session = await getAuthSession();
-
-  // Minimal debug logging
-  if (process.env.NODE_ENV === 'development') {
-    console.log("Dashboard:", {
-      email: session?.user?.email?.substring(0, 15),
-      hasImage: !!session?.user?.image,
-      isGoogle: session?.user?.image?.includes('googleusercontent.com'),
-    });
-  }
 
   if (!session || !session.user.isActive) {
     redirect("/login");
@@ -20,229 +12,150 @@ export default async function DashboardPage() {
 
   // Determine account type
   const isGoogleAccount = session.user.image?.includes('googleusercontent.com');
-  const accountType = isGoogleAccount ? "Google" : "Email";
-  
-  // Get initial for fallback avatar
-  const getInitial = () => {
-    return (
-      session.user.name?.charAt(0).toUpperCase() || 
-      session.user.email?.charAt(0).toUpperCase() || 
-      "U"
-    );
-  };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6">
-      <div className="max-w-4xl mx-auto">
-        {/* Header with Sign Out */}
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-              Dashboard
-            </h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">
-              Manage your account and view your activity
-            </p>
-            {/* Account Type Badge */}
-            <div className="mt-2">
-              <span className={`px-2 py-1 text-xs rounded ${
-                isGoogleAccount 
-                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' 
-                  : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
-              }`}>
-                {isGoogleAccount ? '🔐 Google Account' : '📧 Email Account'}
-              </span>
-            </div>
-          </div>
-          <SignOutButton />
-        </div>
-
-        {/* Account Info Panel */}
-        <div className={`mb-6 p-4 rounded-lg border ${
-          isGoogleAccount
-            ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
-            : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
-        }`}>
-          <h3 className={`font-semibold mb-2 ${
-            isGoogleAccount 
-              ? 'text-green-800 dark:text-green-300' 
-              : 'text-blue-800 dark:text-blue-300'
-          }`}>
-            {isGoogleAccount ? '✅ Google Account Connected' : '📧 Email Account'}
-          </h3>
-          <div className="text-sm">
-            {isGoogleAccount ? (
-              <p>Your Google profile image is automatically loaded from Google's CDN.</p>
-            ) : (
-              <p>Using a default avatar. Consider connecting a Google account for profile images.</p>
-            )}
-          </div>
-        </div>
-
-        {/* User Profile Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 mb-6">
-          <div className="flex items-center gap-4">
-            {/* Profile Image */}
-            {session.user.image ? (
-              <div className="relative">
-                <img
-                  src={session.user.image}
-                  alt={session.user.name || "Profile"}
-                  className="w-24 h-24 rounded-full border-4 border-gray-200 dark:border-gray-700"
-                  referrerPolicy="no-referrer"
-                />
-                {isGoogleAccount && (
-                  <div className="absolute -bottom-2 -right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full">
-                    Google
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="relative">
-                <div className="w-24 h-24 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 border-4 border-gray-200 dark:border-gray-700 flex items-center justify-center text-white text-3xl font-bold">
-                  {getInitial()}
-                </div>
-                <div className="absolute -bottom-2 -right-2 bg-blue-500 text-white text-xs px-2 py-1 rounded-full">
-                  Email
-                </div>
-              </div>
-            )}
-            
-            <div className="flex-1">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+    <NavigationLayout user={session.user}>
+      <div className="space-y-6">
+        {/* Welcome Header */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
                 Welcome back, {session.user.name || session.user.email}!
-              </h2>
-              <p className="text-gray-600 dark:text-gray-400">{session.user.email}</p>
-              
-              {/* Role Badge */}
-              <div className="mt-3 flex items-center gap-3">
-                <span className={`px-3 py-1 rounded-full text-sm font-medium
-                  ${session.user.role === 'ADMIN' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300' : 
-                    session.user.role === 'MANAGER' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300' : 
-                    'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'}`}
-                >
-                  {session.user.role}
-                </span>
-                
-                {/* Active Status */}
-                <span className="px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
-                  Active
-                </span>
-              </div>
+              </h1>
+              <p className="text-gray-600 dark:text-gray-400 mt-1">
+                Here's what's happening with your tasks today.
+              </p>
+            </div>
+            <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+              isGoogleAccount 
+                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
+                : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
+            }`}>
+              {isGoogleAccount ? 'Google Account' : 'Email Account'}
+            </div>
+          </div>
+        </div>
 
-              {/* Account Details */}
-              <div className="mt-4 p-3 rounded-lg bg-gray-50 dark:bg-gray-700">
-                <p className="text-sm text-gray-700 dark:text-gray-300">
-                  {isGoogleAccount 
-                    ? '✅ Signed in with Google - profile image loaded from Google CDN'
-                    : '📧 Signed in with email - using personalized avatar'
-                  }
-                </p>
+        {/* Quick Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Total Tasks</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">12</p>
+              </div>
+              <div className="w-12 h-12 rounded-lg bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
+                <svg className="w-6 h-6 text-blue-600 dark:text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Completed</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">8</p>
+              </div>
+              <div className="w-12 h-12 rounded-lg bg-green-100 dark:bg-green-900 flex items-center justify-center">
+                <svg className="w-6 h-6 text-green-600 dark:text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">In Progress</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">3</p>
+              </div>
+              <div className="w-12 h-12 rounded-lg bg-yellow-100 dark:bg-yellow-900 flex items-center justify-center">
+                <svg className="w-6 h-6 text-yellow-600 dark:text-yellow-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Pending</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">1</p>
+              </div>
+              <div className="w-12 h-12 rounded-lg bg-red-100 dark:bg-red-900 flex items-center justify-center">
+                <svg className="w-6 h-6 text-red-600 dark:text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Dashboard Content */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {/* Quick Stats */}
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
-              Account Overview
-            </h3>
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-gray-600 dark:text-gray-400">Account Type</span>
-                <span className="text-gray-900 dark:text-white font-medium">
-                  {accountType}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600 dark:text-gray-400">Member Since</span>
-                <span className="text-gray-900 dark:text-white font-medium">
-                  Today
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600 dark:text-gray-400">Last Login</span>
-                <span className="text-gray-900 dark:text-white font-medium">
-                  Just now
-                </span>
-              </div>
-            </div>
-          </div>
-
+        {/* Recent Activity & Quick Actions */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Recent Activity */}
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
               Recent Activity
-            </h3>
-            <div className="space-y-3">
-              <p className="text-gray-600 dark:text-gray-400">
-                ✅ Successfully signed in
-              </p>
-              <p className="text-gray-600 dark:text-gray-400">
-                {isGoogleAccount 
-                  ? '✅ Google profile image loaded'
-                  : '✅ Personalized avatar created'
-                }
-              </p>
-              <p className="text-gray-600 dark:text-gray-400">
-                ✅ Dashboard accessed
-              </p>
+            </h2>
+            <div className="space-y-4">
+              {[
+                { action: "Signed in", time: "Just now", icon: "🔐" },
+                { action: "Created new task", time: "2 hours ago", icon: "📝" },
+                { action: "Completed 3 subtasks", time: "Yesterday", icon: "✅" },
+                { action: "Updated profile", time: "2 days ago", icon: "👤" },
+              ].map((activity, index) => (
+                <div key={index} className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
+                  <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+                    <span className="text-lg">{activity.icon}</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-900 dark:text-white">{activity.action}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{activity.time}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
           {/* Quick Actions */}
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
               Quick Actions
-            </h3>
-            <div className="space-y-3">
-              {!isGoogleAccount && (
-                <button className="w-full text-left px-4 py-3 rounded-lg bg-blue-100 dark:bg-blue-900 hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors text-blue-800 dark:text-blue-300">
-                  🔗 Connect Google Account
-                </button>
-              )}
-              <button className="w-full text-left px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-gray-900 dark:text-white">
-                👤 Edit Profile
+            </h2>
+            <div className="grid grid-cols-2 gap-4">
+              <button className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left">
+                <div className="text-2xl mb-2">📋</div>
+                <div className="font-medium text-gray-900 dark:text-white">New Task</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Create a new task</div>
               </button>
-              <button className="w-full text-left px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-gray-900 dark:text-white">
-                🔒 Security Settings
+              
+              <button className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left">
+                <div className="text-2xl mb-2">⚡</div>
+                <div className="font-medium text-gray-900 dark:text-white">AI Breakdown</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Break down with AI</div>
+              </button>
+              
+              <button className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left">
+                <div className="text-2xl mb-2">📊</div>
+                <div className="font-medium text-gray-900 dark:text-white">Analytics</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">View insights</div>
+              </button>
+              
+              <button className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left">
+                <div className="text-2xl mb-2">⚙️</div>
+                <div className="font-medium text-gray-900 dark:text-white">Settings</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Manage account</div>
               </button>
             </div>
           </div>
-        </div>
-
-        {/* Success Message */}
-        <div className="mt-8 p-6 bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 rounded-xl border border-green-200 dark:border-green-800">
-          <div className="flex items-center justify-center gap-4">
-            <div className="text-4xl">🎉</div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Authentication System Working Perfectly!
-              </h3>
-              <p className="text-gray-600 dark:text-gray-400">
-                {isGoogleAccount 
-                  ? 'Your Google OAuth integration is fully functional with profile images.'
-                  : 'Your email authentication is working with personalized avatars.'
-                }
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Footer Note */}
-        <div className="mt-8 text-center text-gray-500 dark:text-gray-400 text-sm">
-          <p>Need help? Contact our support team</p>
-          <p className="mt-1 text-xs">
-            {isGoogleAccount 
-              ? 'Google OAuth integration complete ✅'
-              : 'Email authentication with fallback avatars configured ✅'
-            }
-          </p>
         </div>
       </div>
-    </div>
+    </NavigationLayout>
   );
 }
