@@ -1,4 +1,4 @@
-import { getAuthSession } from "@/app/api/auth/[...nextauth]/nextAuth";
+import { getAuthSession } from "@/app/api/auth/[...nextauth]/route";
 import { redirect } from "next/navigation";
 import LoginClient from "./LoginClient";
 

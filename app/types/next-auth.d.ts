@@ -7,6 +7,7 @@ declare module "next-auth" {
       id: string;
       role: Role;
       isActive: boolean; // <-- added
+      image?: string;
     } & DefaultSession["user"];
   }
 
@@ -14,6 +15,7 @@ declare module "next-auth" {
     id: string;
     role: Role;
     isActive: boolean; // <-- added
+    image?: string;
   }
 }
 
@@ -22,5 +24,6 @@ declare module "next-auth/jwt" {
     id: string;
     role: Role;
     isActive: boolean; // <-- added
+    image?: string;
   }
 }

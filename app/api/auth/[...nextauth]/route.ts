@@ -1,4 +1,6 @@
-    // Use the default export (handler) directly
-    import auth from "@/app/api/auth/[...nextauth]/nextAuth";
+import NextAuth from "next-auth";
+import { authOptions, getAuthSession } from "./authOptions";
 
-    export { auth as GET, auth as POST };
+const handler = NextAuth(authOptions);
+export { handler as GET, handler as POST };
+export { getAuthSession };
