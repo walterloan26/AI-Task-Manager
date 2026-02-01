@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { z } from "zod"
-import { ratelimit } from "@/lib/rateLimit"
+import { rateLimitByIP } from '@/lib/appRateLimit'
 
 const reorderSchema = z.object({
   taskId: z.string(),
@@ -14,19 +14,29 @@ const reorderSchema = z.object({
   )
 })
 
+// Helper function for rate limiting
+async function checkRateLimit(req: Request, prefix: string): Promise<boolean> {
+  try {
+    const isAllowed = await rateLimitByIP(req);
+    if (!isAllowed) {
+      console.warn(`Rate limit exceeded for ${prefix}`);
+    }
+    return isAllowed;
+  } catch (error) {
+    console.error(`Rate limiting error for ${prefix}:`, error);
+    return true; // Fail open
+  }
+}
+
 export async function PATCH(req: Request) {
   try {
-    const identifier =
-      req.headers.get("x-forwarded-for") ||
-      req.headers.get("x-real-ip") ||
-      "anonymous"
-
-    const { success } = await ratelimit.limit(`${identifier}:reorder`)
-    if (!success) {
+    // Rate limiting check - UPDATED
+    const isAllowed = await checkRateLimit(req, 'reorder:patch');
+    if (!isAllowed) {
       return NextResponse.json(
-        { error: "Rate limit exceeded" },
+        { error: "Rate limit exceeded. Please try again later." },
         { status: 429 }
-      )
+      );
     }
 
     const body = await req.json()
@@ -34,32 +44,78 @@ export async function PATCH(req: Request) {
 
     if (!validation.success) {
       return NextResponse.json(
-        { error: "Invalid reorder payload" },
+        { 
+          error: "Invalid reorder payload",
+          details: validation.error.format() // Optional: include validation details
+        },
         { status: 400 }
       )
     }
 
     const { taskId, subtasks } = validation.data
 
-
-    await prisma.$transaction(
-  subtasks.map((s) =>
-    prisma.subtask.update({
+    // Validate that all subtasks belong to the specified task
+    const subtaskIds = subtasks.map(s => s.id);
+    const existingSubtasks = await prisma.subtask.findMany({
       where: {
-        id: s.id,
-        taskId, // 🔒 safety: prevents cross-task corruption
+        id: { in: subtaskIds },
+        taskId: taskId
       },
-      data: { orderIndex: s.orderIndex },
-    })
-  )
-)
+      select: { id: true }
+    });
 
-    return NextResponse.json({ success: true })
+    const existingSubtaskIds = existingSubtasks.map(s => s.id);
+    const missingSubtaskIds = subtaskIds.filter(id => !existingSubtaskIds.includes(id));
+    
+    if (missingSubtaskIds.length > 0) {
+      return NextResponse.json(
+        { 
+          error: "Some subtasks do not belong to the specified task",
+          invalidIds: missingSubtaskIds
+        },
+        { status: 400 }
+      );
+    }
+
+    // Update subtasks in a transaction
+    await prisma.$transaction(
+      subtasks.map((s) =>
+        prisma.subtask.update({
+          where: {
+            id: s.id,
+            taskId, // 🔒 safety: prevents cross-task corruption
+          },
+          data: { orderIndex: s.orderIndex },
+        })
+      )
+    );
+
+    return NextResponse.json({ 
+      success: true,
+      message: "Subtasks reordered successfully"
+    });
+    
   } catch (err) {
-    console.error("PATCH /subtasks/reorder error:", err)
+    console.error("PATCH /subtasks/reorder error:", err);
+    
+    let errorMessage = "Failed to reorder subtasks";
+    let statusCode = 500;
+    
+    if (err instanceof Error) {
+      errorMessage = err.message;
+      // Handle specific Prisma errors
+      if (errorMessage.includes("RecordNotFound") || errorMessage.includes("P2025")) {
+        errorMessage = "Subtask not found or doesn't belong to the specified task";
+        statusCode = 404;
+      }
+    }
+    
     return NextResponse.json(
-      { error: "Failed to reorder subtasks" },
-      { status: 500 }
-    )
+      { 
+        error: errorMessage,
+        success: false
+      },
+      { status: statusCode }
+    );
   }
 }

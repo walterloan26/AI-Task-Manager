@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/nextAuth";
+import { authOptions } from "@/app/api/auth/[...nextauth]/authOptions";
 import { ROLES, type Role } from "@/lib/roles";
 
 export async function requireRole(

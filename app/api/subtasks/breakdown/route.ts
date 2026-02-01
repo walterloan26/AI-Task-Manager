@@ -1,9 +1,9 @@
 // app/api/subtasks/breakdown/route.ts
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
-import { ratelimit } from "@/lib/rateLimit"
+import { rateLimitByIP } from '@/lib/appRateLimit';
 import { aiSubtaskArrayLooseSchema } from "@/lib/ai/aiSchemas"
 import { normalizeAISubtasks } from "@/lib/ai/normalizeSubtasks"
 import { initialOrder } from "@/lib/order"
@@ -77,12 +77,37 @@ function parseAndValidateAISubtasks(raw: string): AISubtask[] {
   return validation.data
 }
 
+// Helper for rate limiting with custom prefix
+async function rateLimitRequest(req: Request, prefix: string): Promise<{ success: boolean }> {
+  try {
+    const isAllowed = await rateLimitByIP(req);
+    if (!isAllowed) {
+      console.warn(`Rate limit exceeded for ${prefix}`);
+    }
+    return { success: isAllowed };
+  } catch (error) {
+    console.error(`Rate limiting error for ${prefix}:`, error);
+    return { success: true }; // Fail open
+  }
+}
+
 /* -------------------------------------------------------------------------- */
 /*                                    POST                                    */
 /* -------------------------------------------------------------------------- */
 
 export async function POST(req: Request) {
   try {
+    // Rate limiting check - UPDATED
+    const rateLimitResult = await rateLimitRequest(req, 'breakdown:post');
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { 
+          error: "Rate limit exceeded. Please try again later."
+        },
+        { status: 429 }
+      );
+    }
+
     // Check OpenAI initialization
     if (!openai) {
       return NextResponse.json(
@@ -91,32 +116,6 @@ export async function POST(req: Request) {
           details: "Please add OPENAI_API_KEY to your .env.local file"
         },
         { status: 500 }
-      )
-    }
-
-    // Rate limiting check
-    const identifier = req.headers.get("x-forwarded-for") || 
-                      req.headers.get("x-real-ip") || 
-                      "anonymous"
-    
-    const { success, limit, reset, remaining } = await ratelimit.limit(identifier)
-    
-    if (!success) {
-      return NextResponse.json(
-        { 
-          error: "Rate limit exceeded", 
-          limit,
-          reset: new Date(reset).toISOString(),
-          remaining 
-        },
-        { 
-          status: 429,
-          headers: {
-            "X-RateLimit-Limit": limit.toString(),
-            "X-RateLimit-Remaining": remaining.toString(),
-            "X-RateLimit-Reset": new Date(reset).toISOString(),
-          }
-        }
       )
     }
 
@@ -188,14 +187,8 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       data: createdTask,
-      rateLimit: { limit, remaining, reset: new Date(reset).toISOString() }
     }, { 
-      status: 201,
-      headers: {
-        "X-RateLimit-Limit": limit.toString(),
-        "X-RateLimit-Remaining": remaining.toString(),
-        "X-RateLimit-Reset": new Date(reset).toISOString(),
-      }
+      status: 201
     })
     
   } catch (error) {
@@ -233,30 +226,15 @@ export async function POST(req: Request) {
 
 export async function GET(req: Request) {
   try {
-    // Rate limiting
-    const identifier = req.headers.get("x-forwarded-for") || 
-                      req.headers.get("x-real-ip") || 
-                      "anonymous"
-    
-    const { success, limit, reset, remaining } = await ratelimit.limit(`${identifier}:get`)
-    
-    if (!success) {
+    // Rate limiting - UPDATED
+    const rateLimitResult = await rateLimitRequest(req, 'breakdown:get');
+    if (!rateLimitResult.success) {
       return NextResponse.json(
         { 
-          error: "Rate limit exceeded",
-          limit,
-          reset: new Date(reset).toISOString(),
-          remaining
+          error: "Rate limit exceeded. Please try again later."
         },
-        { 
-          status: 429,
-          headers: {
-            "X-RateLimit-Limit": limit.toString(),
-            "X-RateLimit-Remaining": remaining.toString(),
-            "X-RateLimit-Reset": new Date(reset).toISOString(),
-          }
-        }
-      )
+        { status: 429 }
+      );
     }
 
     const tasks = await prisma.task.findMany({
@@ -304,13 +282,6 @@ export async function GET(req: Request) {
         success: true, 
         count: updatedTasks.length,
         data: updatedTasks,
-        rateLimit: { limit, remaining, reset: new Date(reset).toISOString() }
-      }, {
-        headers: {
-          "X-RateLimit-Limit": limit.toString(),
-          "X-RateLimit-Remaining": remaining.toString(),
-          "X-RateLimit-Reset": new Date(reset).toISOString(),
-        }
       })
     }
 
@@ -318,13 +289,6 @@ export async function GET(req: Request) {
       success: true, 
       count: tasks.length,
       data: tasks,
-      rateLimit: { limit, remaining, reset: new Date(reset).toISOString() }
-    }, {
-      headers: {
-        "X-RateLimit-Limit": limit.toString(),
-        "X-RateLimit-Remaining": remaining.toString(),
-        "X-RateLimit-Reset": new Date(reset).toISOString(),
-      }
     })
   } catch (error) {
     console.error("GET /api/breakdown error:", error)
@@ -356,30 +320,15 @@ export async function GET(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    // Rate limiting
-    const identifier = req.headers.get("x-forwarded-for") || 
-                      req.headers.get("x-real-ip") || 
-                      "anonymous"
-    
-    const { success, limit, reset, remaining } = await ratelimit.limit(`${identifier}:patch`)
-    
-    if (!success) {
+    // Rate limiting - UPDATED
+    const rateLimitResult = await rateLimitRequest(req, 'breakdown:patch');
+    if (!rateLimitResult.success) {
       return NextResponse.json(
         { 
-          error: "Rate limit exceeded",
-          limit,
-          reset: new Date(reset).toISOString(),
-          remaining
+          error: "Rate limit exceeded. Please try again later."
         },
-        { 
-          status: 429,
-          headers: {
-            "X-RateLimit-Limit": limit.toString(),
-            "X-RateLimit-Remaining": remaining.toString(),
-            "X-RateLimit-Reset": new Date(reset).toISOString(),
-          }
-        }
-      )
+        { status: 429 }
+      );
     }
 
     const { searchParams } = new URL(req.url)
@@ -440,13 +389,6 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ 
       success: true,
       data: updatedTask,
-      rateLimit: { limit, remaining, reset: new Date(reset).toISOString() }
-    }, {
-      headers: {
-        "X-RateLimit-Limit": limit.toString(),
-        "X-RateLimit-Remaining": remaining.toString(),
-        "X-RateLimit-Reset": new Date(reset).toISOString(),
-      }
     })
     
   } catch (error) {
@@ -476,30 +418,15 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    // Rate limiting
-    const identifier = req.headers.get("x-forwarded-for") || 
-                      req.headers.get("x-real-ip") || 
-                      "anonymous"
-    
-    const { success, limit, reset, remaining } = await ratelimit.limit(`${identifier}:delete`)
-    
-    if (!success) {
+    // Rate limiting - UPDATED
+    const rateLimitResult = await rateLimitRequest(req, 'breakdown:delete');
+    if (!rateLimitResult.success) {
       return NextResponse.json(
         { 
-          error: "Rate limit exceeded",
-          limit,
-          reset: new Date(reset).toISOString(),
-          remaining
+          error: "Rate limit exceeded. Please try again later."
         },
-        { 
-          status: 429,
-          headers: {
-            "X-RateLimit-Limit": limit.toString(),
-            "X-RateLimit-Remaining": remaining.toString(),
-            "X-RateLimit-Reset": new Date(reset).toISOString(),
-          }
-        }
-      )
+        { status: 429 }
+      );
     }
 
     const { searchParams } = new URL(req.url)
@@ -517,13 +444,6 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ 
       success: true,
       message: "Task deleted successfully",
-      rateLimit: { limit, remaining, reset: new Date(reset).toISOString() }
-    }, {
-      headers: {
-        "X-RateLimit-Limit": limit.toString(),
-        "X-RateLimit-Remaining": remaining.toString(),
-        "X-RateLimit-Reset": new Date(reset).toISOString(),
-      }
     })
     
   } catch (error) {

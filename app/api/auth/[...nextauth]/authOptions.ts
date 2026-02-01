@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { ROLES, type Role } from "@/lib/roles";
 import { getServerSession } from "next-auth/next";
+import { rateLimitLoginAttempt } from "@/lib/appRateLimit";
 
 /* ======================================================
    Type Augmentation - FIXED
@@ -45,7 +46,7 @@ export const authOptions: NextAuthOptions = {
 
   session: {
     strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60,
+    maxAge: 30 * 24 * 60 * 60, // 30 days
   },
 
   providers: [
@@ -63,7 +64,7 @@ export const authOptions: NextAuthOptions = {
           id: profile.sub,
           name: profile.name,
           email: profile.email,
-          image: profile.picture,
+          image: profile.picture, // Google profile image
         };
       },
     }),
@@ -77,6 +78,14 @@ export const authOptions: NextAuthOptions = {
         if (!credentials?.email || !credentials?.password) return null;
 
         const email = credentials.email.toLowerCase().trim();
+        
+        // ✅ FIXED: Use App Router compatible rate limiting
+        const isAllowed = await rateLimitLoginAttempt(email);
+        if (!isAllowed) {
+          console.warn(`Rate limit exceeded for email: ${email}`);
+          return null;
+        }
+
         const user = await prisma.user.findUnique({ where: { email } });
         
         if (!user || !user.passwordHash || !user.isActive) return null;
@@ -89,13 +98,14 @@ export const authOptions: NextAuthOptions = {
             data: {
               failedLoginAttempts: user.failedLoginAttempts + 1,
               lockedUntil: user.failedLoginAttempts + 1 >= 5
-                ? new Date(Date.now() + 15 * 60 * 1000)
+                ? new Date(Date.now() + 15 * 60 * 1000) // 15 minutes lock
                 : null,
             },
           });
           return null;
         }
 
+        // Reset failed attempts and update last login
         await prisma.user.update({
           where: { id: user.id },
           data: { 
@@ -109,7 +119,7 @@ export const authOptions: NextAuthOptions = {
           id: user.id,
           email: user.email,
           name: user.name,
-          image: user.image,
+          image: user.image, // Include database image
           role: user.role,
           isActive: user.isActive,
         };
@@ -118,7 +128,9 @@ export const authOptions: NextAuthOptions = {
   ],
 
   callbacks: {
+    // ✅ FIXED: Added profile parameter for Google image handling
     async jwt({ token, user, account, profile, trigger }) {
+      // Initial sign in
       if (user) {
         token.id = user.id;
         token.role = user.role;
@@ -126,19 +138,21 @@ export const authOptions: NextAuthOptions = {
         token.image = user.image;
       }
       
+      // ✅ FIXED: Handle Google profile image
       if (account?.provider === "google" && profile?.picture) {
         token.image = profile.picture;
       }
       
+      // Update from database
       if (trigger === "update" && token.id) {
         const dbUser = await prisma.user.findUnique({
           where: { id: token.id },
-          select: { role: true, isActive: true, image: true },
+          select: { role: true, isActive: true, image: true }, // ✅ FIXED: Include image
         });
         if (dbUser) {
           token.role = dbUser.role as Role;
           token.isActive = dbUser.isActive;
-          token.image = dbUser.image;
+          token.image = dbUser.image; // ✅ FIXED: Update image from DB
         }
       }
       
@@ -150,24 +164,26 @@ export const authOptions: NextAuthOptions = {
         session.user.id = token.id!;
         session.user.role = token.role!;
         session.user.isActive = token.isActive!;
-        session.user.image = token.image as string;
+        session.user.image = token.image as string; // ✅ FIXED: Include image in session
       }
       return session;
     },
 
+    // ✅ FIXED: Added profile parameter for Google sign-in
     async signIn({ user, account, profile }) {
+      // Google OAuth
       if (account?.provider === "google") {
         const dbUser = await prisma.user.upsert({
           where: { email: user.email!.toLowerCase() },
           update: { 
             lastLoginAt: new Date(), 
             name: user.name,
-            image: profile?.picture || user.image,
+            image: profile?.picture || user.image, // ✅ FIXED: Save Google image
           },
           create: {
             email: user.email!.toLowerCase(),
             name: user.name,
-            image: profile?.picture,
+            image: profile?.picture, // ✅ FIXED: Save Google image on creation
             role: ROLES.USER,
             isActive: true,
             lastLoginAt: new Date(),
@@ -176,6 +192,7 @@ export const authOptions: NextAuthOptions = {
 
         if (!dbUser.isActive) return false;
 
+        // Link Google account
         await prisma.account.upsert({
           where: {
             provider_providerAccountId: {
@@ -201,6 +218,7 @@ export const authOptions: NextAuthOptions = {
         return true;
       }
 
+      // Credentials provider
       if (account?.provider === "credentials") {
         const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
         if (!dbUser?.isActive) return false;
@@ -216,6 +234,7 @@ export const authOptions: NextAuthOptions = {
       return false;
     },
 
+    // Redirect callback
     async redirect({ url, baseUrl }) {
       return url.startsWith(baseUrl) ? url : baseUrl + "/dashboard";
     },

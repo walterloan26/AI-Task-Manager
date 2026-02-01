@@ -3,28 +3,26 @@ import { redirect } from "next/navigation";
 import SignOutButton from "./SignOutButton";
 
 export default async function DashboardPage() {
-  // ✅ Server-side session check
   const session = await getAuthSession();
 
-  // Debug logging (always run this to see session data)
-  console.log("🔍 Dashboard Session Debug:");
-  console.log("- Has session:", !!session);
-  if (session) {
-    console.log("- User image exists:", !!session.user?.image);
-    console.log("- User image URL:", session.user?.image);
-    console.log("- User name:", session.user?.name);
-    console.log("- User email:", session.user?.email);
-    console.log("- User role:", session.user?.role);
-    console.log("- User isActive:", session.user?.isActive);
-    console.log("- Full session object:", JSON.stringify(session, null, 2));
+  // Minimal debug logging
+  if (process.env.NODE_ENV === 'development') {
+    console.log("Dashboard:", {
+      email: session?.user?.email?.substring(0, 15),
+      hasImage: !!session?.user?.image,
+      isGoogle: session?.user?.image?.includes('googleusercontent.com'),
+    });
   }
 
   if (!session || !session.user.isActive) {
-    // Redirect immediately if no session or inactive user
     redirect("/login");
   }
 
-  // Get first initial for fallback avatar
+  // Determine account type
+  const isGoogleAccount = session.user.image?.includes('googleusercontent.com');
+  const accountType = isGoogleAccount ? "Google" : "Email";
+  
+  // Get initial for fallback avatar
   const getInitial = () => {
     return (
       session.user.name?.charAt(0).toUpperCase() || 
@@ -45,41 +43,46 @@ export default async function DashboardPage() {
             <p className="text-gray-600 dark:text-gray-400 mt-1">
               Manage your account and view your activity
             </p>
-            {/* DEBUG: Show image status */}
+            {/* Account Type Badge */}
             <div className="mt-2">
               <span className={`px-2 py-1 text-xs rounded ${
-                session.user.image 
+                isGoogleAccount 
                   ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' 
-                  : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'
+                  : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
               }`}>
-                {session.user.image ? '✓ Has Google Image' : '✗ No Google Image'}
+                {isGoogleAccount ? '🔐 Google Account' : '📧 Email Account'}
               </span>
             </div>
           </div>
           <SignOutButton />
         </div>
 
-        {/* DEBUG Panel - Show success */}
-        <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-          <h3 className="font-semibold text-green-800 dark:text-green-300 mb-2">
-            ✅ SUCCESS: Google Image Retrieved!
+        {/* Account Info Panel */}
+        <div className={`mb-6 p-4 rounded-lg border ${
+          isGoogleAccount
+            ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+            : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+        }`}>
+          <h3 className={`font-semibold mb-2 ${
+            isGoogleAccount 
+              ? 'text-green-800 dark:text-green-300' 
+              : 'text-blue-800 dark:text-blue-300'
+          }`}>
+            {isGoogleAccount ? '✅ Google Account Connected' : '📧 Email Account'}
           </h3>
-          <pre className="text-xs overflow-auto whitespace-pre-wrap">
-            {JSON.stringify({
-              hasImage: !!session.user.image,
-              imageUrl: session.user.image?.substring(0, 60) + "...",
-              name: session.user.name,
-              email: session.user.email,
-              role: session.user.role,
-              isActive: session.user.isActive,
-            }, null, 2)}
-          </pre>
+          <div className="text-sm">
+            {isGoogleAccount ? (
+              <p>Your Google profile image is automatically loaded from Google's CDN.</p>
+            ) : (
+              <p>Using a default avatar. Consider connecting a Google account for profile images.</p>
+            )}
+          </div>
         </div>
 
         {/* User Profile Card */}
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 mb-6">
           <div className="flex items-center gap-4">
-            {/* Profile Image - SIMPLIFIED (no onError handler) */}
+            {/* Profile Image */}
             {session.user.image ? (
               <div className="relative">
                 <img
@@ -88,13 +91,20 @@ export default async function DashboardPage() {
                   className="w-24 h-24 rounded-full border-4 border-gray-200 dark:border-gray-700"
                   referrerPolicy="no-referrer"
                 />
-                <div className="absolute -bottom-2 -right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full">
-                  Google
-                </div>
+                {isGoogleAccount && (
+                  <div className="absolute -bottom-2 -right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full">
+                    Google
+                  </div>
+                )}
               </div>
             ) : (
-              <div className="w-24 h-24 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 border-4 border-gray-200 dark:border-gray-700 flex items-center justify-center text-white text-3xl font-bold">
-                {getInitial()}
+              <div className="relative">
+                <div className="w-24 h-24 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 border-4 border-gray-200 dark:border-gray-700 flex items-center justify-center text-white text-3xl font-bold">
+                  {getInitial()}
+                </div>
+                <div className="absolute -bottom-2 -right-2 bg-blue-500 text-white text-xs px-2 py-1 rounded-full">
+                  Email
+                </div>
               </div>
             )}
             
@@ -115,21 +125,18 @@ export default async function DashboardPage() {
                 </span>
                 
                 {/* Active Status */}
-                <span className={`px-3 py-1 rounded-full text-sm font-medium
-                  ${session.user.isActive ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' : 
-                    'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'}`}
-                >
-                  {session.user.isActive ? 'Active' : 'Inactive'}
+                <span className="px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
+                  Active
                 </span>
               </div>
 
-              {/* Success Message */}
-              <div className="mt-4 p-3 bg-green-50 dark:bg-green-900/30 rounded-lg">
-                <p className="text-sm text-green-700 dark:text-green-400">
-                  ✅ Google profile image successfully loaded!
-                </p>
-                <p className="text-xs text-green-600 dark:text-green-500 mt-1 truncate">
-                  URL: {session.user.image?.substring(0, 50)}...
+              {/* Account Details */}
+              <div className="mt-4 p-3 rounded-lg bg-gray-50 dark:bg-gray-700">
+                <p className="text-sm text-gray-700 dark:text-gray-300">
+                  {isGoogleAccount 
+                    ? '✅ Signed in with Google - profile image loaded from Google CDN'
+                    : '📧 Signed in with email - using personalized avatar'
+                  }
                 </p>
               </div>
             </div>
@@ -145,15 +152,21 @@ export default async function DashboardPage() {
             </h3>
             <div className="space-y-3">
               <div className="flex justify-between">
+                <span className="text-gray-600 dark:text-gray-400">Account Type</span>
+                <span className="text-gray-900 dark:text-white font-medium">
+                  {accountType}
+                </span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-gray-600 dark:text-gray-400">Member Since</span>
                 <span className="text-gray-900 dark:text-white font-medium">
                   Today
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-600 dark:text-gray-400">Account Type</span>
+                <span className="text-gray-600 dark:text-gray-400">Last Login</span>
                 <span className="text-gray-900 dark:text-white font-medium">
-                  Google OAuth
+                  Just now
                 </span>
               </div>
             </div>
@@ -166,10 +179,16 @@ export default async function DashboardPage() {
             </h3>
             <div className="space-y-3">
               <p className="text-gray-600 dark:text-gray-400">
-                ✅ Successfully signed in with Google
+                ✅ Successfully signed in
               </p>
               <p className="text-gray-600 dark:text-gray-400">
-                ✅ Profile image retrieved from Google
+                {isGoogleAccount 
+                  ? '✅ Google profile image loaded'
+                  : '✅ Personalized avatar created'
+                }
+              </p>
+              <p className="text-gray-600 dark:text-gray-400">
+                ✅ Dashboard accessed
               </p>
             </div>
           </div>
@@ -180,30 +199,34 @@ export default async function DashboardPage() {
               Quick Actions
             </h3>
             <div className="space-y-3">
+              {!isGoogleAccount && (
+                <button className="w-full text-left px-4 py-3 rounded-lg bg-blue-100 dark:bg-blue-900 hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors text-blue-800 dark:text-blue-300">
+                  🔗 Connect Google Account
+                </button>
+              )}
               <button className="w-full text-left px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-gray-900 dark:text-white">
-                👤 View Profile
+                👤 Edit Profile
               </button>
               <button className="w-full text-left px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-gray-900 dark:text-white">
-                ⚙️ Account Settings
-              </button>
-              <button className="w-full text-left px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-gray-900 dark:text-white">
-                🔑 Manage Security
+                🔒 Security Settings
               </button>
             </div>
           </div>
         </div>
 
-        {/* Success Celebration */}
+        {/* Success Message */}
         <div className="mt-8 p-6 bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 rounded-xl border border-green-200 dark:border-green-800">
           <div className="flex items-center justify-center gap-4">
             <div className="text-4xl">🎉</div>
             <div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Success! Google Integration Working
+                Authentication System Working Perfectly!
               </h3>
               <p className="text-gray-600 dark:text-gray-400">
-                Your Google profile image is now successfully displayed. 
-                The image URL is from Google's CDN: <code className="text-xs">lh3.googleusercontent.com</code>
+                {isGoogleAccount 
+                  ? 'Your Google OAuth integration is fully functional with profile images.'
+                  : 'Your email authentication is working with personalized avatars.'
+                }
               </p>
             </div>
           </div>
@@ -213,7 +236,10 @@ export default async function DashboardPage() {
         <div className="mt-8 text-center text-gray-500 dark:text-gray-400 text-sm">
           <p>Need help? Contact our support team</p>
           <p className="mt-1 text-xs">
-            NextAuth configuration fixed! ✅ Google images are now properly handled.
+            {isGoogleAccount 
+              ? 'Google OAuth integration complete ✅'
+              : 'Email authentication with fallback avatars configured ✅'
+            }
           </p>
         </div>
       </div>
