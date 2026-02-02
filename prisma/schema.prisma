@@ -12,11 +12,12 @@ model User {
   id           String   @id @default(cuid())
   name         String?
   email        String   @unique
-  image         String?
+  image        String?
   emailVerified DateTime?
   lastLoginAt   DateTime?
   passwordHash String?
-  role         String   @default("USER") // replaced enum with string
+
+  role         String   @default("USER")
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -27,7 +28,10 @@ model User {
 
   accounts Account[]
   sessions Session[]
-  tasks    Task[]
+  createdTasks  Task[] @relation("CreatedTasks")
+  assignedTasks Task[] @relation("AssignedTasks")
+  tasks         Task[] @relation("UserTasks")  // Added for Task.user relation
+  activities    Activity[]                     // Added for Activity.actor relation
 
   @@index([role])
   @@index([isActive])
@@ -39,11 +43,32 @@ model Task {
   complexity   String    @default("MEDIUM")
   aiGenerated  Boolean   @default(false)
   aiConfidence Float?
+  
+  status       String    @default("PENDING")
+
+  // Admin who created it
+  createdById String
+  createdBy   User @relation("CreatedTasks", fields: [createdById], references: [id])
+
+  // User assigned to execute
+  assignedToId String
+  assignedTo   User @relation("AssignedTasks", fields: [assignedToId], references: [id])
+
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+
   subtasks     Subtask[]
-  userId       String
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Changed from 'user' to 'owner' to avoid confusion
+  ownerId       String
+  owner         User      @relation("UserTasks", fields: [ownerId], references: [id], onDelete: Cascade)
+  
+  activities   Activity[]  // Added for Activity.task relation
+
+  @@index([assignedToId])
+  @@index([createdById])
+  @@index([status])
+  @@index([ownerId])
 }
 
 model Subtask {
@@ -58,7 +83,7 @@ model Subtask {
   task            Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
-  isDeleted       Boolean  @default(false)  // Add this field
+  isDeleted       Boolean  @default(false)
 
   @@index([taskId, orderIndex])
 }
@@ -95,4 +120,31 @@ model Account {
   user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
+}
+
+model Activity {
+  id String @id @default(cuid())
+
+  type String
+
+  // Who performed the action
+  actorId String
+  actor   User @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
+  // Optional context
+  taskId    String?
+  task      Task?   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  subtaskId String?
+  // no direct relation needed unless you want it
+
+  // SQLite doesn't support Json type. Use String and store JSON as text
+  meta String?
+
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([taskId])
+  @@index([type])
+  @@index([createdAt])
 }

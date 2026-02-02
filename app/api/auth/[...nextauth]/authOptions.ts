@@ -7,9 +7,10 @@ import bcrypt from "bcryptjs";
 import { ROLES, type Role } from "@/lib/roles";
 import { getServerSession } from "next-auth/next";
 import { rateLimitLoginAttempt } from "@/lib/appRateLimit";
+import { ACTIVITY_TYPES } from "@/lib/activityTypes";
 
 /* ======================================================
-   Type Augmentation - FIXED
+   Type Augmentation
 ====================================================== */
 declare module "next-auth" {
   interface Session {
@@ -53,18 +54,18 @@ export const authOptions: NextAuthOptions = {
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      authorization: { 
-        params: { 
+      authorization: {
+        params: {
           scope: "openid email profile",
-          prompt: "consent" 
-        } 
+          prompt: "consent",
+        },
       },
       profile(profile) {
         return {
           id: profile.sub,
           name: profile.name,
           email: profile.email,
-          image: profile.picture, // Google profile image
+          image: profile.picture,
         };
       },
     }),
@@ -78,48 +79,41 @@ export const authOptions: NextAuthOptions = {
         if (!credentials?.email || !credentials?.password) return null;
 
         const email = credentials.email.toLowerCase().trim();
-        
-        // ✅ FIXED: Use App Router compatible rate limiting
-        const isAllowed = await rateLimitLoginAttempt(email);
-        if (!isAllowed) {
-          console.warn(`Rate limit exceeded for email: ${email}`);
-          return null;
-        }
+
+        // Rate limiting
+        const allowed = await rateLimitLoginAttempt(email);
+        if (!allowed) return null;
 
         const user = await prisma.user.findUnique({ where: { email } });
-        
         if (!user || !user.passwordHash || !user.isActive) return null;
         if (user.lockedUntil && user.lockedUntil > new Date()) return null;
 
-        const isValid = await bcrypt.compare(credentials.password, user.passwordHash);
-        if (!isValid) {
+        const valid = await bcrypt.compare(credentials.password, user.passwordHash);
+        if (!valid) {
           await prisma.user.update({
             where: { id: user.id },
             data: {
               failedLoginAttempts: user.failedLoginAttempts + 1,
-              lockedUntil: user.failedLoginAttempts + 1 >= 5
-                ? new Date(Date.now() + 15 * 60 * 1000) // 15 minutes lock
-                : null,
+              lockedUntil:
+                user.failedLoginAttempts + 1 >= 5
+                  ? new Date(Date.now() + 15 * 60 * 1000)
+                  : null,
             },
           });
           return null;
         }
 
-        // Reset failed attempts and update last login
+        // Reset failed attempts and last login
         await prisma.user.update({
           where: { id: user.id },
-          data: { 
-            failedLoginAttempts: 0, 
-            lockedUntil: null, 
-            lastLoginAt: new Date() 
-          },
+          data: { failedLoginAttempts: 0, lockedUntil: null, lastLoginAt: new Date() },
         });
 
         return {
           id: user.id,
-          email: user.email,
           name: user.name,
-          image: user.image, // Include database image
+          email: user.email,
+          image: user.image,
           role: user.role,
           isActive: user.isActive,
         };
@@ -128,113 +122,131 @@ export const authOptions: NextAuthOptions = {
   ],
 
   callbacks: {
-    // ✅ FIXED: Added profile parameter for Google image handling
-    async jwt({ token, user, account, profile, trigger }) {
-      // Initial sign in
+    /* ======================================================
+       JWT callback
+       - On first sign-in, set token from user
+       - On update trigger, refresh token from DB
+    ====================================================== */
+    async jwt({ token, user, trigger }) {
       if (user) {
         token.id = user.id;
         token.role = user.role;
         token.isActive = user.isActive;
         token.image = user.image;
       }
-      
-      // ✅ FIXED: Handle Google profile image
-      if (account?.provider === "google" && profile?.picture) {
-        token.image = profile.picture;
-      }
-      
-      // Update from database
+
       if (trigger === "update" && token.id) {
         const dbUser = await prisma.user.findUnique({
           where: { id: token.id },
-          select: { role: true, isActive: true, image: true }, // ✅ FIXED: Include image
+          select: { role: true, isActive: true, image: true },
         });
         if (dbUser) {
           token.role = dbUser.role as Role;
           token.isActive = dbUser.isActive;
-          token.image = dbUser.image; // ✅ FIXED: Update image from DB
+          token.image = dbUser.image;
         }
       }
-      
+
       return token;
     },
 
+    /* ======================================================
+       Session callback
+       - Populate session.user from token
+    ====================================================== */
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id!;
         session.user.role = token.role!;
         session.user.isActive = token.isActive!;
-        session.user.image = token.image as string; // ✅ FIXED: Include image in session
+        session.user.image = token.image!;
       }
       return session;
     },
 
-    // ✅ FIXED: Added profile parameter for Google sign-in
+    /* ======================================================
+       SignIn callback
+       - Handles both Google and Credentials login
+       - Upserts Google users
+       - Logs activity if last login > 1 min
+    ====================================================== */
     async signIn({ user, account, profile }) {
-      // Google OAuth
-      if (account?.provider === "google") {
-        const dbUser = await prisma.user.upsert({
-          where: { email: user.email!.toLowerCase() },
-          update: { 
-            lastLoginAt: new Date(), 
-            name: user.name,
-            image: profile?.picture || user.image, // ✅ FIXED: Save Google image
-          },
-          create: {
-            email: user.email!.toLowerCase(),
-            name: user.name,
-            image: profile?.picture, // ✅ FIXED: Save Google image on creation
-            role: ROLES.USER,
-            isActive: true,
-            lastLoginAt: new Date(),
-          },
+  console.log('🔥 SIGNIN TRIGGERED - Stack trace:');
+  console.log(new Error().stack);
+  console.log('User:', user.email);
+  console.log('Provider:', account?.provider);
+  console.log('Time:', new Date().toISOString());
+  console.log('---');
+  
+  // -------- GOOGLE LOGIN --------
+  if (account?.provider === "google") {
+    try {
+      const dbUser = await prisma.user.findUnique({
+        where: { email: user.email!.toLowerCase() },
+      });
+      
+      if (!dbUser || !dbUser.isActive) return false;
+
+      // Update last login
+      await prisma.user.update({
+        where: { id: dbUser.id },
+        data: { 
+          lastLoginAt: new Date(),
+          name: user.name,
+          image: profile?.picture || user.image,
+        },
+      });
+
+      // ✅ Log activity for EVERY login (remove 1-minute check)
+      try {
+        await prisma.Activity.create({
+          data: { type: ACTIVITY_TYPES.LOGIN, actorId: dbUser.id },
         });
-
-        if (!dbUser.isActive) return false;
-
-        // Link Google account
-        await prisma.account.upsert({
-          where: {
-            provider_providerAccountId: {
-              provider: "google",
-              providerAccountId: account.providerAccountId!,
-            },
-          },
-          update: {},
-          create: {
-            userId: dbUser.id,
-            provider: "google",
-            providerAccountId: account.providerAccountId!,
-            type: "oauth",
-            access_token: account.access_token,
-            refresh_token: account.refresh_token,
-            expires_at: account.expires_at,
-            token_type: account.token_type,
-            scope: account.scope,
-            id_token: account.id_token,
-          },
-        });
-
-        return true;
+        console.log(`✅ Logged activity for ${dbUser.email}`);
+      } catch (err) {
+        console.error("Failed to log Google login activity", err);
       }
 
-      // Credentials provider
-      if (account?.provider === "credentials") {
-        const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
-        if (!dbUser?.isActive) return false;
-
-        await prisma.user.update({
-          where: { id: dbUser.id },
-          data: { lastLoginAt: new Date() },
-        });
-
-        return true;
-      }
-
+      return true;
+    } catch (error) {
+      console.error("Google signIn error:", error);
       return false;
-    },
+    }
+  }
 
-    // Redirect callback
+  // -------- CREDENTIALS LOGIN --------
+  if (account?.provider === "credentials") {
+    try {
+      const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
+      if (!dbUser?.isActive) return false;
+
+      // Update last login
+      await prisma.user.update({
+        where: { id: dbUser.id },
+        data: { lastLoginAt: new Date() },
+      });
+
+      // ✅ Log activity for EVERY login (remove 1-minute check)
+      try {
+        await prisma.Activity.create({
+          data: { type: ACTIVITY_TYPES.LOGIN, actorId: dbUser.id },
+        });
+        console.log(`✅ Logged activity for ${dbUser.email}`);
+      } catch (err) {
+        console.error("Failed to log Credentials login activity", err);
+      }
+
+      return true;
+    } catch (error) {
+      console.error("Credentials signIn error:", error);
+      return false;
+    }
+  }
+
+  return false;
+},
+
+    // Redirect after login
     async redirect({ url, baseUrl }) {
       return url.startsWith(baseUrl) ? url : baseUrl + "/dashboard";
     },

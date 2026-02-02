@@ -2,6 +2,7 @@
 import { getAuthSession } from "@/app/api/auth/[...nextauth]/authOptions";
 import { redirect } from "next/navigation";
 import NavigationLayout from "@/app/components/NavigationLayout";
+import RecentActivity from "@/app/components/recentActivity";
 
 export default async function DashboardPage() {
   const session = await getAuthSession();
@@ -101,7 +102,7 @@ export default async function DashboardPage() {
           {/* Recent Activity */}
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-              Recent Activity
+               <RecentActivity/>
             </h2>
             <div className="space-y-4">
               {[
