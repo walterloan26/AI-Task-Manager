@@ -9,6 +9,9 @@ import { rateLimitByIP } from "@/lib/appRateLimit";
 import { generateSubtasks } from "@/lib/ai/client";
 import { initialOrder } from "@/lib/order";
 import { canUseAI } from "@/lib/ai/quota";
+import { logActivity } from "@/lib/logActivity";
+import { ACTIVITY_TYPES } from "@/lib/activityTypes";
+
 
 
 import {
@@ -37,122 +40,6 @@ async function rateLimitRequest(req: Request, prefix: string): Promise<boolean> 
 /*                                    POST                                    */
 /* -------------------------------------------------------------------------- */
 
-// export async function POST(req: Request) {
-//   try {
-//     /* ----------------------------- Rate limit ------------------------------ */
-//     if (!(await rateLimitRequest(req, "breakdown:post"))) {
-//       return NextResponse.json(
-//         { error: "Rate limit exceeded. Please try again later." },
-//         { status: 429 }
-//       );
-//     }
-
-//     /* -------------------------- Validate request --------------------------- */
-//     const validation = validateBreakdownRequest(await req.json());
-
-//     if (!validation.success) {
-//       return NextResponse.json(
-//         {
-//           error: "Invalid request",
-//           details: validation.error.format(),
-//         },
-//         { status: 400 }
-//       );
-//     }
-
-//     const { task, complexity } = validation.data;
-
-//     const user = await prisma.user.findUnique({
-//       where: { id: session.user.id },
-//     });
-
-//     if (!user) {
-//       return NextResponse.json(
-//         { error: "User not found" },
-//         { status: 404 }
-//       );
-//     }
-
-//     const session = await getServerSession(authOptions);
-
-//     if (!session?.user?.id) {
-//       return NextResponse.json(
-//         { error: "Unauthorized" },
-//         { status: 401 }
-//       );
-//     }
-
-//     /* ------------------------------ AI layer ------------------------------- */
-//     // This is the ONLY AI call.
-//     // Mock or real is handled internally by generateSubtasks()
-//     const { subtasks, confidence } = await generateSubtasks(task);
-
-//     /* -------------------------- Persist to DB ------------------------------ */
-//     const createdTask = await prisma.task.create({
-//       data: {
-//         task,
-//         complexity: complexity?.toUpperCase(),
-//         aiGenerated: true,
-//         aiConfidence: confidence,
-//         user: {
-//           connect: {
-//             id: session.user.id,
-//           },
-//         },
-//         subtasks: {
-//           create: subtasks.map((s, index) => ({
-//             title: s.title,
-//             description: s.description,
-//             estimateMinutes: Math.max(1, s.estimateMinutes),
-//             completed: s.completed ?? false,
-//             priority: (s.priority?.toUpperCase() || "MEDIUM") as
-//               | "HIGH"
-//               | "MEDIUM"
-//               | "LOW",
-//             orderIndex: initialOrder(index),
-//           })),
-//         },
-//       },
-//       include: {
-//         subtasks: { orderBy: { orderIndex: "asc" } },
-//       },
-//     });
-
-//     return NextResponse.json(
-//       {
-//         success: true,
-//         data: createdTask,
-//       },
-//       { status: 201 }
-//     );
-//   } catch (error) {
-//     console.error("POST /api/subtasks/breakdown error:", error);
-
-//     let message = "Internal server error";
-//     let status = 500;
-
-//     if (error instanceof Error) {
-//       message = error.message;
-
-//       if (message.includes("AI")) {
-//         status = 422;
-//       }
-
-//       if (
-//         message.includes("schema") ||
-//         message.includes("does not exist")
-//       ) {
-//         message =
-//           "Database schema out of sync. Run: npx prisma db push && npx prisma generate";
-//       }
-//     }
-
-//     return NextResponse.json(
-//       { error: message, success: false },
-//       { status }
-//     );
-//   }
-// }
 export async function POST(req: Request) {
   try {
     /* ----------------------------- Rate limit ------------------------------ */
@@ -219,12 +106,19 @@ export async function POST(req: Request) {
 
     /* -------------------------- Persist task ------------------------------- */
     const createdTask = await prisma.task.create({
+      
       data: {
         task,
         complexity: complexity?.toUpperCase(),
         aiGenerated: true,
         aiConfidence: confidence,
-        user: {
+        createdBy: {
+          connect: { id:user.id}
+        },
+        owner: {
+          connect: { id:user.id }
+        },
+        assignedTo: {
           connect: { id: user.id },
         },
         subtasks: {
@@ -244,6 +138,11 @@ export async function POST(req: Request) {
       include: {
         subtasks: { orderBy: { orderIndex: "asc" } },
       },
+    });
+    await logActivity({
+      type: ACTIVITY_TYPES.TASK_CREATED,
+      actorId: user.id,
+      taskId: createdTask.id,
     });
 
     /* ----------------------- Increment quota ------------------------------- */
@@ -361,6 +260,22 @@ export async function PATCH(req: Request) {
         | "LOW",
     }));
 
+    // Fetch existing subtasks BEFORE update
+    const existingTask = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: {
+        subtasks: true,
+      },
+    });
+
+    if (!existingTask) {
+      return NextResponse.json(
+        { error: "Task not found" },
+        { status: 404 }
+      );
+    }
+
+
     const updatedTask = await prisma.task.update({
       where: { id: taskId },
       data: {
@@ -380,6 +295,25 @@ export async function PATCH(req: Request) {
         subtasks: { orderBy: { orderIndex: "asc" } },
       },
     });
+    // Detect newly completed subtasks
+    const completedSubtasks = updatedTask.subtasks.filter(s => s.completed);
+
+
+    const session = await getServerSession(authOptions);
+
+    if (session?.user?.id && completedSubtasks.length > 0) {
+      await logActivity({
+        type: ACTIVITY_TYPES.SUBTASK_COMPLETED,
+        actorId: session.user.id,
+        taskId,
+        meta: {
+          count: completedSubtasks.length,
+        },
+      });
+    }
+
+
+
 
     return NextResponse.json({
       success: true,

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma"
-import { ACTIVITY_TYPES, ActivityType } from "./activityTypes"
+import { ActivityType } from "./activityTypes"
 
 type LogActivityInput = {
   type: ActivityType
@@ -14,7 +14,7 @@ export async function logActivity(input: LogActivityInput) {
       type: input.type,
       actorId: input.actorId,
       taskId: input.taskId,
-      meta: input.meta
+      // meta: input.meta
     }
   })
 }

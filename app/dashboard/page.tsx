@@ -3,6 +3,13 @@ import { getAuthSession } from "@/app/api/auth/[...nextauth]/authOptions";
 import { redirect } from "next/navigation";
 import NavigationLayout from "@/app/components/NavigationLayout";
 import RecentActivity from "@/app/components/recentActivity";
+import { getDashboardStats } from "@/lib/dashboard/stats";
+import { getDashboardActivitySummary } from "@/lib/dashboard/activitySummary";
+import { DashboardRow } from "../components/dashboardRow"
+
+
+
+
 
 export default async function DashboardPage() {
   const session = await getAuthSession();
@@ -13,6 +20,21 @@ export default async function DashboardPage() {
 
   // Determine account type
   const isGoogleAccount = session.user.image?.includes('googleusercontent.com');
+  
+  const stats = await getDashboardStats(session.user.id);
+
+  const activity = await getDashboardActivitySummary(session.user.id);
+
+  const {
+    signedIn,
+    tasksCreated,
+    subtasksCompleted,
+    profileUpdated,
+    hasAnyActivity,
+  } = activity;
+
+
+
 
   return (
     <NavigationLayout user={session.user}>
@@ -44,7 +66,7 @@ export default async function DashboardPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Total Tasks</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">12</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{stats.total}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
                 <svg className="w-6 h-6 text-blue-600 dark:text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -58,7 +80,7 @@ export default async function DashboardPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Completed</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">8</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{stats.completed}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-green-100 dark:bg-green-900 flex items-center justify-center">
                 <svg className="w-6 h-6 text-green-600 dark:text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -72,7 +94,7 @@ export default async function DashboardPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">In Progress</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">3</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{stats.inProgress}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-yellow-100 dark:bg-yellow-900 flex items-center justify-center">
                 <svg className="w-6 h-6 text-yellow-600 dark:text-yellow-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -86,7 +108,7 @@ export default async function DashboardPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Pending</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">1</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{stats.pending}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-red-100 dark:bg-red-900 flex items-center justify-center">
                 <svg className="w-6 h-6 text-red-600 dark:text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -102,25 +124,36 @@ export default async function DashboardPage() {
           {/* Recent Activity */}
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-               <RecentActivity/>
+               Today
             </h2>
+            <RecentActivity userId={session.user.id}/>
             <div className="space-y-4">
-              {[
-                { action: "Signed in", time: "Just now", icon: "🔐" },
-                { action: "Created new task", time: "2 hours ago", icon: "📝" },
-                { action: "Completed 3 subtasks", time: "Yesterday", icon: "✅" },
-                { action: "Updated profile", time: "2 days ago", icon: "👤" },
-              ].map((activity, index) => (
-                <div key={index} className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
-                  <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
-                    <span className="text-lg">{activity.icon}</span>
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-medium text-gray-900 dark:text-white">{activity.action}</p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">{activity.time}</p>
-                  </div>
-                </div>
-              ))}
+              {signedIn && (
+                <DashboardRow icon="🔐" label="Signed in today" />
+              )}
+              {tasksCreated > 0 && (
+                <DashboardRow
+                  icon="📝"
+                  label={`Created ${activity.tasksCreated} task${activity.tasksCreated > 1 ? "s" : ""}`}
+                />
+              )}
+              {subtasksCompleted > 0 && (
+                <DashboardRow
+                  icon="✅"
+                  label={`Completed ${activity.subtasksCompleted} subtask${activity.subtasksCompleted > 1 ? "s" : ""}`}
+                />
+              )}
+              {profileUpdated && (
+                <DashboardRow icon="👤" label="Updated profile" />
+              )}
+              {!signedIn &&
+                tasksCreated === 0 &&
+                subtasksCompleted === 0 &&
+                !profileUpdated && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    No activity recorded today.
+                  </p>
+              )}
             </div>
           </div>
 
