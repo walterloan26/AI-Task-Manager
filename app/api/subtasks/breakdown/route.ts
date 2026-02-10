@@ -1,5 +1,4 @@
 // app/api/subtasks/breakdown/route.ts
-
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
@@ -11,8 +10,7 @@ import { initialOrder } from "@/lib/order";
 import { canUseAI } from "@/lib/ai/quota";
 import { logActivity } from "@/lib/logActivity";
 import { ACTIVITY_TYPES } from "@/lib/activityTypes";
-
-
+import { globalEvents } from '@/lib/events/eventEmitter';
 
 import {
   subtaskSchema,
@@ -106,17 +104,16 @@ export async function POST(req: Request) {
 
     /* -------------------------- Persist task ------------------------------- */
     const createdTask = await prisma.task.create({
-      
       data: {
         task,
         complexity: complexity?.toUpperCase(),
         aiGenerated: true,
         aiConfidence: confidence,
         createdBy: {
-          connect: { id:user.id}
+          connect: { id: user.id }
         },
         owner: {
-          connect: { id:user.id }
+          connect: { id: user.id }
         },
         assignedTo: {
           connect: { id: user.id },
@@ -139,10 +136,21 @@ export async function POST(req: Request) {
         subtasks: { orderBy: { orderIndex: "asc" } },
       },
     });
+    
     await logActivity({
       type: ACTIVITY_TYPES.TASK_CREATED,
       actorId: user.id,
       taskId: createdTask.id,
+    });
+    
+    globalEvents.emit('task:created', { 
+      taskId: createdTask.id, 
+      userId: user.id 
+    });
+    
+    globalEvents.emit('task:updated', { 
+      taskId: createdTask.id, 
+      userId: user.id 
     });
 
     /* ----------------------- Increment quota ------------------------------- */
@@ -166,14 +174,12 @@ export async function POST(req: Request) {
     );
   } catch (error) {
     console.error("POST /api/subtasks/breakdown error:", error);
-
     return NextResponse.json(
       { error: "Internal server error", success: false },
       { status: 500 }
     );
   }
 }
-
 
 /* -------------------------------------------------------------------------- */
 /*                                    GET                                     */
@@ -254,7 +260,6 @@ export async function GET(req: Request) {
     });
   } catch (error) {
     console.error("GET /api/subtasks/breakdown error:", error);
-
     return NextResponse.json(
       { error: "Failed to fetch tasks", success: false },
       { status: 500 }
@@ -267,8 +272,12 @@ export async function GET(req: Request) {
 /* -------------------------------------------------------------------------- */
 
 export async function PATCH(req: Request) {
+  console.log('========== 🚨 PATCH REQUEST START ==========');
+  console.log('⏰ Timestamp:', new Date().toISOString());
+  
   try {
     if (!(await rateLimitRequest(req, "breakdown:patch"))) {
+      console.log('⏸️ Rate limited');
       return NextResponse.json(
         { error: "Rate limit exceeded. Please try again later." },
         { status: 429 }
@@ -278,7 +287,10 @@ export async function PATCH(req: Request) {
     const { searchParams } = new URL(req.url);
     const taskId = searchParams.get("id");
 
+    console.log('📥 Task ID from URL:', taskId);
+
     if (!taskId) {
+      console.log('❌ No task ID provided');
       return NextResponse.json(
         { error: "Task id is required" },
         { status: 400 }
@@ -289,19 +301,27 @@ export async function PATCH(req: Request) {
     const session = await getServerSession(authOptions);
     
     if (!session?.user?.id) {
+      console.log('❌ No session - unauthorized');
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
       );
     }
 
+    console.log('👤 User:', { id: session.user.id, role: session.user.role });
+
     const body = await req.json();
+    
+    console.log('📦 Raw request body:', JSON.stringify(body, null, 2));
+    console.log('🔢 Subtasks in request:', body.subtasks?.length || 0);
+    console.log('✅ Completed count in request:', body.subtasks?.filter((s: any) => s.completed).length || 0);
 
     const validation = z.object({
       subtasks: z.array(subtaskSchema),
     }).safeParse(body);
 
     if (!validation.success) {
+      console.error('❌ Validation failed:', validation.error.format());
       return NextResponse.json(
         {
           error: "Invalid subtasks payload",
@@ -311,6 +331,8 @@ export async function PATCH(req: Request) {
       );
     }
 
+    console.log('✅ Validation passed');
+
     const normalizedSubtasks = validation.data.subtasks.map((s) => ({
       ...s,
       priority: (s.priority?.toUpperCase() || "MEDIUM") as
@@ -319,8 +341,15 @@ export async function PATCH(req: Request) {
         | "LOW",
     }));
 
+    console.log('📋 Normalized subtasks:', normalizedSubtasks.map(s => ({
+      title: s.title.substring(0, 30) + (s.title.length > 30 ? '...' : ''),
+      completed: s.completed,
+      priority: s.priority
+    })));
+    
+    console.log('🔢 Final completed count:', normalizedSubtasks.filter(s => s.completed).length, 'of', normalizedSubtasks.length);
+
     /* ---------------------------- Check Task Existence & Permissions ---------------------------- */
-    // Fetch existing task with ownership info
     const existingTask = await prisma.task.findUnique({
       where: { id: taskId },
       include: {
@@ -328,36 +357,62 @@ export async function PATCH(req: Request) {
         owner: {
           select: {
             id: true,
+            name: true,
           },
         },
         assignedTo: {
           select: {
             id: true,
+            name: true,
           },
         },
       },
     });
 
     if (!existingTask) {
+      console.log('❌ Task not found in database:', taskId);
       return NextResponse.json(
         { error: "Task not found" },
         { status: 404 }
       );
     }
 
+    console.log('🎯 Task being updated:', {
+      id: taskId,
+      name: existingTask.task,
+      owner: existingTask.owner?.name || existingTask.ownerId,
+      assignedTo: existingTask.assignedTo?.name || existingTask.assignedToId,
+      isCvcTask: existingTask.task === 'cvc' // Special check for debugging
+    });
+
+    console.log('📊 BEFORE UPDATE - Existing task state:', {
+      taskName: existingTask.task,
+      existingSubtasks: existingTask.subtasks.map(s => ({
+        title: s.title.substring(0, 20) + (s.title.length > 20 ? '...' : ''),
+        completed: s.completed,
+        id: s.id?.substring(0, 8) + '...'
+      })),
+      existingCompleted: existingTask.subtasks.filter(s => s.completed).length,
+      totalSubtasks: existingTask.subtasks.length
+    });
+
     // Check permissions - who can update this task?
     const isAdmin = session.user.role === 'ADMIN';
     const isOwner = existingTask.ownerId === session.user.id;
     const isAssigned = existingTask.assignedToId === session.user.id;
     
-    // Determine who can update based on your business logic:
-    // Option 1: Only owners and admins can update (strict)
-    // Option 2: Owners, assigned users, and admins can update (more flexible)
-    
     // Using Option 2 (more flexible - allows assigned users to update):
     const canUpdate = isAdmin || isOwner || isAssigned;
     
     if (!canUpdate) {
+      console.log('❌ Permission denied:', {
+        isAdmin,
+        isOwner,
+        isAssigned,
+        taskOwnerId: existingTask.ownerId,
+        taskAssignedToId: existingTask.assignedToId,
+        userId: session.user.id,
+      });
       return NextResponse.json(
         { 
           error: "Access denied",
@@ -375,9 +430,21 @@ export async function PATCH(req: Request) {
       );
     }
 
-    console.log(`🔧 PATCH /api/subtasks/breakdown: User ${session.user.id} updating task ${taskId} (owner: ${isOwner}, assigned: ${isAssigned}, admin: ${isAdmin})`);
+    console.log(`🔧 User ${session.user.id} updating task ${taskId} (owner: ${isOwner}, assigned: ${isAssigned}, admin: ${isAdmin})`);
+
+    console.log('🔄 ABOUT TO UPDATE - New subtasks data:', {
+      newSubtasks: normalizedSubtasks.map(s => ({
+        title: s.title.substring(0, 20) + (s.title.length > 20 ? '...' : ''),
+        completed: s.completed,
+        priority: s.priority
+      })),
+      newCompleted: normalizedSubtasks.filter(s => s.completed).length,
+      totalNewSubtasks: normalizedSubtasks.length
+    });
 
     /* ---------------------------- Update Task ---------------------------- */
+    console.log('💾 Starting database update...');
+    
     const updatedTask = await prisma.task.update({
       where: { id: taskId },
       data: {
@@ -412,14 +479,53 @@ export async function PATCH(req: Request) {
       },
     });
 
-    /* ---------------------------- Log Activity ---------------------------- */
-    // Detect newly completed subtasks
+    console.log('✅ AFTER UPDATE - Database result:', {
+      taskName: updatedTask.task,
+      updatedSubtasks: updatedTask.subtasks.map(s => ({
+        title: s.title.substring(0, 20) + (s.title.length > 20 ? '...' : ''),
+        completed: s.completed,
+        id: s.id?.substring(0, 8) + '...'
+      })),
+      updatedCompleted: updatedTask.subtasks.filter(s => s.completed).length,
+      totalUpdatedSubtasks: updatedTask.subtasks.length
+    });
+
+    /* ---------------------------- Calculate Changes ---------------------------- */
     const completedSubtasks = updatedTask.subtasks.filter(s => s.completed);
     const previouslyCompletedSubtasks = existingTask.subtasks.filter(s => s.completed);
     
     // Find newly completed subtasks (ones that weren't completed before)
     const newlyCompletedCount = completedSubtasks.length - previouslyCompletedSubtasks.length;
+
+    console.log('🔢 Change calculation:', {
+      previousCompleted: previouslyCompletedSubtasks.length,
+      newCompleted: completedSubtasks.length,
+      newlyCompletedCount,
+      hasChanges: newlyCompletedCount !== 0
+    });
+
+    /* ---------------------------- Emit Events ---------------------------- */
+    globalEvents.emit('task:updated', { 
+      taskId, 
+      userId: session.user.id,
+      taskName: updatedTask.task,
+      newlyCompletedCount
+    });
     
+    console.log(`📢 Emitted task:updated for task "${updatedTask.task}" (${taskId})`);
+
+    if (newlyCompletedCount !== 0) {
+      globalEvents.emit('subtask:toggled', {
+        taskId,
+        userId: session.user.id,
+        newlyCompletedCount: Math.abs(newlyCompletedCount),
+        wasCompleted: newlyCompletedCount > 0,
+        taskName: updatedTask.task
+      });
+      console.log(`📢 Emitted subtask:toggled for task "${updatedTask.task}", count: ${newlyCompletedCount}`);
+    }
+
+    /* ---------------------------- Log Activity ---------------------------- */
     // Log task update activity
     await logActivity({
       type: ACTIVITY_TYPES.TASK_UPDATED,
@@ -448,20 +554,29 @@ export async function PATCH(req: Request) {
       });
     }
 
+    console.log('📤 Returning response with:', {
+      success: true,
+      taskName: updatedTask.task,
+      completedCount: updatedTask.subtasks.filter(s => s.completed).length,
+      totalCount: updatedTask.subtasks.length
+    });
+
+    console.log('========== ✅ PATCH REQUEST END ==========');
+
     return NextResponse.json({
       success: true,
       data: updatedTask,
       permissions: {
         canEdit: true,
-        canDelete: isAdmin || isOwner, // Only owners and admins can delete
+        canDelete: isAdmin || isOwner,
         isOwner,
         isAssigned,
         isAdmin,
       },
     });
   } catch (error) {
-    console.error("PATCH /api/subtasks/breakdown error:", error);
-
+    console.error('❌ PATCH error:', error);
+    console.log('========== ❌ PATCH REQUEST FAILED ==========');
     return NextResponse.json(
       { error: "Failed to update task", success: false },
       { status: 500 }
@@ -508,6 +623,7 @@ export async function DELETE(req: Request) {
       select: {
         ownerId: true,
         assignedToId: true,
+        task: true,
       },
     });
 
@@ -544,10 +660,20 @@ export async function DELETE(req: Request) {
         },
       });
     }
+    
+    globalEvents.emit('task:deleted', { 
+      taskId: id, 
+      userId: session.user.id,
+      taskName: task.task,
+      deletedByOwner: isOwner,
+      deletedByAdmin: isAdmin && !isOwner
+    });
+    
+    console.log(`📢 Emitted task:deleted for task "${task.task}" (${id})`);
 
     await prisma.task.delete({ where: { id } });
 
-    console.log(`🗑️ Task ${id} deleted by user ${session.user.id} (admin: ${isAdmin}, owner: ${isOwner})`);
+    console.log(`🗑️ Task "${task.task}" (${id}) deleted by user ${session.user.id} (admin: ${isAdmin}, owner: ${isOwner})`);
 
     return NextResponse.json({
       success: true,
@@ -555,7 +681,6 @@ export async function DELETE(req: Request) {
     });
   } catch (error) {
     console.error("DELETE /api/subtasks/breakdown error:", error);
-
     return NextResponse.json(
       { error: "Failed to delete task", success: false },
       { status: 500 }

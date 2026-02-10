@@ -12,6 +12,7 @@ import SkeletonSubtaskCard from "./components/SkeletonSubtaskCard";
 import SkeletonTaskList from "./components/SkeletonTaskList"; 
 import ThemeToggle from "./components/ThemeToggle";
 import { nanoid } from "nanoid";
+import { clientEvents } from '@/lib/events/clientEvents';
 
 type TaskBoardProps = {
   userId: string;
@@ -159,29 +160,42 @@ export default function TaskBoard(props: TaskBoardProps) {
   /* ---------------------------- Helpers ---------------------------- */
 // Helper function to check if a subtask has meaningful changes
 const hasMeaningfulChange = (current: UiSubtask, updated: UiSubtask): boolean => {
-  // Note: We compare priority case-insensitively since parent normalizes to uppercase
+  console.log('🔍 hasMeaningfulChange comparison:', {
+    currentCompleted: current.completed,
+    updatedCompleted: updated.completed,
+    completedChanged: current.completed !== updated.completed,
+    result: current.completed !== updated.completed || 
+            current.priority.toUpperCase() !== updated.priority.toUpperCase() ||
+            current.title !== updated.title ||
+            current.description !== updated.description ||
+            current.estimateMinutes !== updated.estimateMinutes
+  });
+  
   if (current.priority.toUpperCase() !== updated.priority.toUpperCase()) return true;
   if (current.title !== updated.title) return true;
   if (current.description !== updated.description) return true;
-  if (current.completed !== updated.completed) return true;
+  if (current.completed !== updated.completed) return true; // ⚠️ This line!
   if (current.estimateMinutes !== updated.estimateMinutes) return true;
   return false;
 };
 
 // Helper function to emit events
 const emitEvent = (eventName: string, data?: any) => {
-  // Import dynamically to avoid SSR issues
-  import('@/lib/events/eventEmitter').then(({ globalEvents }) => {
-    globalEvents.emit(eventName, data);
-    console.log(`📢 Emitted event: ${eventName}`, data);
-  }).catch(error => {
-    console.error('Error emitting event:', error);
-  });
+  // Emit to clientEvents (for immediate UI updates in same tab)
+  clientEvents.emit(eventName, data);
+  console.log(`📢 Emitted client event: ${eventName}`, data);
 };
 
 /* ------------------------ Update Handler ------------------------ */
 const updateSubtask = (updated: UiSubtask) => {
-  console.log("🔄 updateSubtask called");
+
+  console.log("🔄 updateSubtask START", {
+    taskId: activeTaskId,
+    subtaskId: updated._uiId,
+    completed: updated.completed,
+    timestamp: Date.now(),
+    stack: new Error().stack?.split('\n').slice(2, 5).join(' | ') // Where was it called from?
+  });
   
   // Find the current subtask
   const currentSubtask = subtasks.find(s => s._uiId === updated._uiId);
@@ -511,6 +525,19 @@ const addSubtask = () => {
   const listToRender = isBaseView
   ? subtasks
   : visibleSubtasks;
+
+  useEffect(() => {
+  // Debug: Log all events emitted from this component
+  const originalEmit = clientEvents.emit;
+  clientEvents.emit = function(event: string, data?: any) {
+    console.log(`🔥 TaskBoard EMITTING: ${event}`, data);
+    return originalEmit.call(this, event, data);
+  };
+  
+  return () => {
+    clientEvents.emit = originalEmit;
+  };
+}, []);
 
 
 

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { UiSubtask, PersistedSubtask } from "../types/subtask";
+import { clientEvents } from '@/lib/events/clientEvents';
 
 interface Params {
   activeTaskId: string | null;
@@ -63,6 +64,15 @@ export function useAutosaveSubtasks({
 
   const orderSnapshot = (items: UiSubtask[]) =>
     JSON.stringify(items.map((s) => s.orderIndex));
+
+  const calculateNewlyCompleted = (currentItems: UiSubtask[], previousItems: UiSubtask[]): number => {
+    if (!previousItems || previousItems.length === 0) return 0;
+    
+    const previousCompleted = previousItems.filter(s => s.completed).length;
+    const currentCompleted = currentItems.filter(s => s.completed).length;
+    
+    return currentCompleted - previousCompleted;
+  };
 
   /* ---------------------------- persist --------------------------- */
   const persist = useCallback(
@@ -139,6 +149,22 @@ export function useAutosaveSubtasks({
           }
 
           const updatedTask = response.data;
+
+          clientEvents.emit('task:updated', {
+            taskId: activeTaskId,
+            serverSaved: true,
+            subtaskCount: items.length
+          });
+
+          const newlyCompletedCount = calculateNewlyCompleted(items, lastGoodSubtasksRef.current);
+          if (newlyCompletedCount !== 0) { // Changed from > 0 to !== 0
+            clientEvents.emit('subtask:toggled', {
+              taskId: activeTaskId,
+              newlyCompletedCount: Math.abs(newlyCompletedCount),
+              wasCompleted: newlyCompletedCount > 0,
+              serverConfirmed: true
+            });
+          }
           
           // Update refs
           lastSavedContentRef.current = contentSnap;

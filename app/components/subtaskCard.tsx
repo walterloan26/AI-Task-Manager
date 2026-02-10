@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useDragControls } from "framer-motion";
 import { UiSubtask, Priority } from "../types/subtask";
 import { useNumberInput } from "../hooks/numberInputs";
@@ -42,6 +42,11 @@ export default function SubtaskCard({
 
   /* ---------------------------- Helpers ---------------------------- */
   const update = (patch: Partial<UiSubtask>) => {
+    console.log('🔄 SubtaskCard update called:', {
+    patch,
+    currentSubtask: { completed: subtask.completed, title: subtask.title },
+    willCallOnChange: true
+  });
     onChange({ ...subtask, ...patch });
   };
 
@@ -82,6 +87,14 @@ export default function SubtaskCard({
     setFocused(false);
   };
 
+  useEffect(() => {
+  console.log('📝 SubtaskCard props updated:', {
+    subtaskId: subtask._uiId,
+    completed: subtask.completed,
+    title: subtask.title
+  });
+}, [subtask]);
+
   /* ------------------------------ UI ------------------------------- */
   return (
     // CHANGED: Replaced motion.div with regular div to fix drag conflict
@@ -97,7 +110,18 @@ export default function SubtaskCard({
         <input
           type="checkbox"
           checked={subtask.completed}
-          onChange={(e) => update({ completed: e.target.checked })}
+          // onChange={(e) => update({ completed: e.target.checked })}
+          onChange={(e) => {
+            console.log('✅ SubtaskCard Checkbox clicked:', {
+              subtaskId: subtask._uiId,
+              title: subtask.title,
+              currentCompleted: subtask.completed,
+              newChecked: e.target.checked,
+              type: typeof e.target.checked,
+              timestamp: Date.now()
+            });
+            update({ completed: e.target.checked });
+          }}
           className="w-4 h-4 accent-gray-900 cursor-pointer"
           aria-label={`Mark "${subtask.title}" as ${subtask.completed ? 'incomplete' : 'complete'}`}
         />

@@ -32,12 +32,26 @@ export async function GET() {
       where: whereClause,
       select: {
         id: true,
+        task: true,
         subtasks: {
           select: { 
             completed: true,
+            title: true,
           },
         },
       },
+    });
+
+    console.log('📊 Stats API: Calculating for', {
+      userId: session.user.id,
+      role: session.user.role,
+      totalTasks: tasks.length,
+      tasks: tasks.map(t => ({
+        task: t.task,
+        totalSubtasks: t.subtasks.length,
+        completedSubtasks: t.subtasks.filter(s => s.completed).length,
+        subtasks: t.subtasks.map(s => ({ title: s.title, completed: s.completed }))
+      }))
     });
 
     let completed = 0;
@@ -50,10 +64,13 @@ export async function GET() {
 
       if (totalSubtasks === 0 || doneSubtasks === 0) {
         pending++;
+        console.log(`📊 Task "${task.task}": PENDING (${doneSubtasks}/${totalSubtasks})`);
       } else if (doneSubtasks === totalSubtasks) {
         completed++;
+        console.log(`📊 Task "${task.task}": COMPLETED (${doneSubtasks}/${totalSubtasks})`);
       } else {
         inProgress++;
+        console.log(`📊 Task "${task.task}": IN PROGRESS (${doneSubtasks}/${totalSubtasks})`);
       }
     }
 
@@ -65,6 +82,7 @@ export async function GET() {
       userRole: session.user.role,
       isAdmin,
     });
+    console.log('📊 Stats API: Final stats', stats);
     
   } catch (error) {
     console.error('Error fetching task stats:', error);
@@ -73,4 +91,36 @@ export async function GET() {
       { status: 500 }
     );
   }
+}
+
+// Add this temporarily to debug
+export async function POST(req: Request) {
+  const session = await getServerSession(authOptions);
+  
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Get ALL tasks regardless of ownership (for debugging)
+  const allTasks = await prisma.task.findMany({
+    select: {
+      id: true,
+      task: true,
+      ownerId: true,
+      assignedToId: true,
+      subtasks: {
+        select: {
+          title: true,
+          completed: true,
+        },
+      },
+    },
+  });
+
+  return NextResponse.json({
+    debug: true,
+    userId: session.user.id,
+    userRole: session.user.role,
+    allTasks,
+  });
 }

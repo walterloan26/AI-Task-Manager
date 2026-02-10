@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { CheckCircle, Clock, AlertCircle, TrendingUp, Shield } from 'lucide-react';
 import { globalEvents } from '@/lib/events/eventEmitter';
+import { clientEvents } from '@/lib/events/clientEvents';
 
 interface TaskStats {
   total: number;
@@ -31,32 +32,92 @@ export default function TaskStatsBar({
     const handleTaskUpdated = (eventData?: any) => {
       console.log('📊 TaskStatsBar: Received update event', eventData);
       setLastUpdate('Updating...');
-      fetchStats();
+      setTimeout(() => {
+        console.log('📊 TaskStatsBar: Delayed fetch after event');
+        fetchStats();
+        }, 500);
     };
+    // Debug: Log when listeners are added/removed
+  console.log('📊 TaskStatsBar: Adding event listeners');
 
     // Listen for global events
-    globalEvents.on('task:updated', handleTaskUpdated);
-    globalEvents.on('task:created', handleTaskUpdated);
-    globalEvents.on('task:deleted', handleTaskUpdated);
-    globalEvents.on('subtask:toggled', handleTaskUpdated);
+    clientEvents.on('task:updated', handleTaskUpdated);
+    clientEvents.on('task:created', handleTaskUpdated);
+    clientEvents.on('task:deleted', handleTaskUpdated);
+    clientEvents.on('subtask:toggled', handleTaskUpdated);
+
+    // Debug: Also listen to all events
+  const debugListener = (data?: any) => {
+  console.log(`📊 TaskStatsBar DEBUG: Heard event`, data);
+};
+
+  clientEvents.on('task:updated', debugListener);
+  clientEvents.on('task:created', debugListener);
+  clientEvents.on('task:deleted', debugListener);
+  clientEvents.on('subtask:toggled', debugListener);
+
+    const pollInterval = setInterval(() => {
+    // Check if we should poll (only if not recently updated)
+        const now = Date.now();
+        const lastPoll = localStorage.getItem('lastStatsPoll');
+        
+        if (!lastPoll || now - parseInt(lastPoll) > 30000) { // Every 30 seconds
+        fetchStats();
+        localStorage.setItem('lastStatsPoll', now.toString());
+        }
+    }, 30000);
 
     return () => {
-      globalEvents.off('task:updated', handleTaskUpdated);
-      globalEvents.off('task:created', handleTaskUpdated);
-      globalEvents.off('task:deleted', handleTaskUpdated);
-      globalEvents.off('subtask:toggled', handleTaskUpdated);
+        console.log('📊 TaskStatsBar: Removing event listeners');
+      clientEvents.off('task:updated', handleTaskUpdated);
+      clientEvents.off('task:created', handleTaskUpdated);
+      clientEvents.off('task:deleted', handleTaskUpdated);
+      clientEvents.off('subtask:toggled', handleTaskUpdated);
+
+      clientEvents.off('task:updated', debugListener);
+    clientEvents.off('task:created', debugListener);
+    clientEvents.off('task:deleted', debugListener);
+    clientEvents.off('subtask:toggled', debugListener);
+
+        
+
+      clearInterval(pollInterval);
     };
-  }, []);
+  }, [userId, userRole]);
 
   const fetchStats = async () => {
+    console.log('📊 TaskStatsBar: Starting fetchStats');
     setLoading(true);
     try {
-      const response = await fetch(`/api/tasks/stats?userId=${userId}&role=${userRole}`);
+        const timestamp = Date.now();
+      const response = await fetch(
+      `/api/tasks/stats?userId=${userId}&role=${userRole}&_=${timestamp}`
+    );
+      console.log('📊 TaskStatsBar: API response status', response.status);
       if (!response.ok) {
         throw new Error(`Failed to fetch stats: ${response.status}`);
       }
       
       const data = await response.json();
+
+      console.log('📊 TaskStatsBar: IN PROGRESS ANALYSIS', {
+      total: data.total,
+      completed: data.completed,
+      inProgress: data.inProgress,
+      pending: data.pending,
+      'completed %': data.total > 0 ? Math.round((data.completed / data.total) * 100) : 0,
+      'inProgress %': data.total > 0 ? Math.round((data.inProgress / data.total) * 100) : 0,
+      'pending %': data.total > 0 ? Math.round((data.pending / data.total) * 100) : 0,
+    });
+    console.log('📊 TaskStatsBar: Stats comparison', {
+      oldStats: stats,
+      newStats: data,
+      changed: JSON.stringify(stats) !== JSON.stringify(data),
+      'old completed': stats.completed, 'new completed': data.completed,
+      'old inProgress': stats.inProgress, 'new inProgress': data.inProgress,
+      'old pending': stats.pending, 'new pending': data.pending,
+    });
+
       setStats(data);
       
       // Update timestamp
@@ -64,9 +125,10 @@ export default function TaskStatsBar({
       setLastUpdate(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
       
     } catch (error) {
-      console.error('Error fetching stats:', error);
+      console.error('📊 TaskStatsBar: Error fetching stats:', error);
     } finally {
       setLoading(false);
+      console.log('📊 TaskStatsBar: fetchStats complete');
     }
   };
 
@@ -249,6 +311,27 @@ export default function TaskStatsBar({
             <div className="text-sm text-gray-700 dark:text-gray-300 font-medium">Pending</div>
           </div>
         </div>
+        <button
+  onClick={async () => {
+    const response = await fetch('/api/tasks/stats/debug');
+    const data = await response.json();
+    console.log('🔍 Detailed Task Analysis:', data);
+    
+    // Show which tasks are In Progress
+    const inProgressTasks = data.detailed.filter((t: any) => t.status === 'IN_PROGRESS');
+    console.log('🔍 In Progress Tasks:', inProgressTasks);
+    
+    // Show which tasks just moved to Completed
+    const newlyCompleted = data.detailed.filter((t: any) => 
+      t.status === 'COMPLETED' && 
+      t.progress.split('/')[0] === t.progress.split('/')[1] // All subtasks done
+    );
+    console.log('🔍 Fully Completed Tasks:', newlyCompleted);
+  }}
+  className="text-xs px-2 py-1 bg-red-100 hover:bg-red-200 rounded"
+>
+  Debug Analysis
+</button>
       </div>
     </>
   );
