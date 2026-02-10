@@ -168,6 +168,17 @@ const hasMeaningfulChange = (current: UiSubtask, updated: UiSubtask): boolean =>
   return false;
 };
 
+// Helper function to emit events
+const emitEvent = (eventName: string, data?: any) => {
+  // Import dynamically to avoid SSR issues
+  import('@/lib/events/eventEmitter').then(({ globalEvents }) => {
+    globalEvents.emit(eventName, data);
+    console.log(`📢 Emitted event: ${eventName}`, data);
+  }).catch(error => {
+    console.error('Error emitting event:', error);
+  });
+};
+
 /* ------------------------ Update Handler ------------------------ */
 const updateSubtask = (updated: UiSubtask) => {
   console.log("🔄 updateSubtask called");
@@ -194,33 +205,59 @@ const updateSubtask = (updated: UiSubtask) => {
   if (hasMeaningfulChange(currentSubtask, normalizedUpdated)) {
     userEditedRef.current = true;
     setSavingSubtaskId(normalizedUpdated._uiId);
-    console.log("Changes detected, setting saving state");
-  } else {
-    console.log("No meaningful changes detected, skipping save");
-  }
+    
+    // Emit event for stats update
+    emitEvent('task:updated', { 
+      taskId: activeTaskId,
+      subtaskId: normalizedUpdated._uiId,
+      completed: normalizedUpdated.completed,
+      wasCompleted: currentSubtask.completed
+    });
+
+    // Special event for completion toggles
+    if (currentSubtask.completed !== normalizedUpdated.completed) {
+      emitEvent('subtask:toggled', {
+        taskId: activeTaskId,
+        subtaskId: normalizedUpdated._uiId,
+        completed: normalizedUpdated.completed,
+      });
+    }
+  };
 };
+/* ------------------------ Subtask Deletion ------------------------ */
 
   const deleteSubtask = (uiId: string) => {
     userEditedRef.current = true;
     setSubtasks((prev) => normalizeOrder(prev.filter((s) => s._uiId !== uiId)));
+
+    emitEvent('subtask:deleted', { 
+    taskId: activeTaskId,
+    subtaskId: uiId
+  });
   };
 
-  const addSubtask = () => {
-    if (!activeTaskId) return;
-    userEditedRef.current = true;
-    setSubtasks((prev) => [
-      ...prev,
-      {
-        _uiId: nanoid(),
-        title: "",
-        description: "",
-        estimateMinutes: 30,
-        completed: false,
-        priority: "Medium",
-        orderIndex: prev.length,
-      },
-    ]);
+  /* ------------------------ Add Subtask ------------------------ */
+const addSubtask = () => {
+  if (!activeTaskId) return;
+  userEditedRef.current = true;
+  const newSubtask = {
+    _uiId: nanoid(),
+    title: "",
+    description: "",
+    estimateMinutes: 30,
+    completed: false,
+    priority: "Medium",
+    orderIndex: subtasks.length,
   };
+  
+  setSubtasks((prev) => [...prev, newSubtask]);
+  
+  // Emit event for new subtask
+  emitEvent('subtask:created', { 
+    taskId: activeTaskId,
+    subtaskId: newSubtask._uiId
+  });
+};
 
   /* ------------------------ Task Deletion ------------------------ */
   const handleDeleteTask = (task: any, e: React.MouseEvent) => {
@@ -244,6 +281,12 @@ const updateSubtask = (updated: UiSubtask) => {
       }
       
       setTasks(prev => prev.filter(t => t.id !== taskToDelete.id));
+
+      // Emit event for deleted task
+      emitEvent('task:deleted', { 
+        taskId: taskToDelete.id,
+        hadSubtasks: taskToDelete.subtasks?.length > 0
+      });
       
       if (activeTaskId === taskToDelete.id) {
         setActiveTaskId(null);
@@ -258,6 +301,7 @@ const updateSubtask = (updated: UiSubtask) => {
       setDeletingTaskId(null);
     }
   };
+
 
   /* ------------------------ Filters & Sorting ------------------------ */
   const applyFilters = (list: UiSubtask[]) => {
@@ -398,6 +442,11 @@ const updateSubtask = (updated: UiSubtask) => {
       // Reset
       // userEditedRef.current = false;
       setTaskInput("");
+
+      emitEvent('task:created', { 
+      taskId: taskData.id,
+      subtasksCount: subtasksArray.length
+    });
       
     } catch (error) {
       console.error("Breakdown failed:", error);

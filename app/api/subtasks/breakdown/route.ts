@@ -188,20 +188,69 @@ export async function GET(req: Request) {
       );
     }
 
+    // Get the current user session
+    const session = await getServerSession(authOptions);
+    
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    // Determine if user is admin
+    const isAdmin = session.user.role === 'ADMIN';
+    
+    // Build where clause based on user role
+    let whereClause: any;
+    
+    if (isAdmin) {
+      // Admin can see all tasks
+      whereClause = {};
+    } else {
+      // Regular users see tasks they own OR are assigned to
+      whereClause = {
+        OR: [
+          { ownerId: session.user.id },
+          { assignedToId: session.user.id }
+        ]
+      };
+    }
+
     const tasks = await prisma.task.findMany({
+      where: whereClause,
       orderBy: { createdAt: "desc" },
       include: {
         subtasks: {
           where: { completed: false },
           orderBy: { orderIndex: "asc" },
         },
+        // Include owner and assignedTo info
+        owner: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        assignedTo: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
       },
     });
+
+    console.log(`📋 GET /api/subtasks/breakdown: Returning ${tasks.length} tasks for user ${session.user.id} (role: ${session.user.role})`);
 
     return NextResponse.json({
       success: true,
       count: tasks.length,
       data: tasks,
+      userRole: session.user.role,
+      isAdmin,
     });
   } catch (error) {
     console.error("GET /api/subtasks/breakdown error:", error);
@@ -236,6 +285,16 @@ export async function PATCH(req: Request) {
       );
     }
 
+    /* ------------------------------ Auth & Permissions ------------------------------ */
+    const session = await getServerSession(authOptions);
+    
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
     const body = await req.json();
 
     const validation = z.object({
@@ -260,11 +319,22 @@ export async function PATCH(req: Request) {
         | "LOW",
     }));
 
-    // Fetch existing subtasks BEFORE update
+    /* ---------------------------- Check Task Existence & Permissions ---------------------------- */
+    // Fetch existing task with ownership info
     const existingTask = await prisma.task.findUnique({
       where: { id: taskId },
       include: {
         subtasks: true,
+        owner: {
+          select: {
+            id: true,
+          },
+        },
+        assignedTo: {
+          select: {
+            id: true,
+          },
+        },
       },
     });
 
@@ -275,7 +345,39 @@ export async function PATCH(req: Request) {
       );
     }
 
+    // Check permissions - who can update this task?
+    const isAdmin = session.user.role === 'ADMIN';
+    const isOwner = existingTask.ownerId === session.user.id;
+    const isAssigned = existingTask.assignedToId === session.user.id;
+    
+    // Determine who can update based on your business logic:
+    // Option 1: Only owners and admins can update (strict)
+    // Option 2: Owners, assigned users, and admins can update (more flexible)
+    
+    // Using Option 2 (more flexible - allows assigned users to update):
+    const canUpdate = isAdmin || isOwner || isAssigned;
+    
+    if (!canUpdate) {
+      return NextResponse.json(
+        { 
+          error: "Access denied",
+          detail: "You do not have permission to update this task. Only task owners, assigned users, or administrators can update tasks.",
+          permissions: {
+            isAdmin,
+            isOwner,
+            isAssigned,
+            taskOwnerId: existingTask.ownerId,
+            taskAssignedToId: existingTask.assignedToId,
+            userId: session.user.id,
+          }
+        },
+        { status: 403 }
+      );
+    }
 
+    console.log(`🔧 PATCH /api/subtasks/breakdown: User ${session.user.id} updating task ${taskId} (owner: ${isOwner}, assigned: ${isAssigned}, admin: ${isAdmin})`);
+
+    /* ---------------------------- Update Task ---------------------------- */
     const updatedTask = await prisma.task.update({
       where: { id: taskId },
       data: {
@@ -293,31 +395,69 @@ export async function PATCH(req: Request) {
       },
       include: {
         subtasks: { orderBy: { orderIndex: "asc" } },
+        owner: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        assignedTo: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
       },
     });
+
+    /* ---------------------------- Log Activity ---------------------------- */
     // Detect newly completed subtasks
     const completedSubtasks = updatedTask.subtasks.filter(s => s.completed);
+    const previouslyCompletedSubtasks = existingTask.subtasks.filter(s => s.completed);
+    
+    // Find newly completed subtasks (ones that weren't completed before)
+    const newlyCompletedCount = completedSubtasks.length - previouslyCompletedSubtasks.length;
+    
+    // Log task update activity
+    await logActivity({
+      type: ACTIVITY_TYPES.TASK_UPDATED,
+      actorId: session.user.id,
+      taskId,
+      meta: {
+        updatedByOwner: isOwner,
+        updatedByAssigned: isAssigned && !isOwner,
+        updatedByAdmin: isAdmin && !isOwner && !isAssigned,
+        subtasksCount: updatedTask.subtasks.length,
+        newlyCompletedSubtasks: newlyCompletedCount > 0 ? newlyCompletedCount : undefined,
+      },
+    });
 
-
-    const session = await getServerSession(authOptions);
-
-    if (session?.user?.id && completedSubtasks.length > 0) {
+    // Log subtask completion if any were newly completed
+    if (newlyCompletedCount > 0) {
       await logActivity({
         type: ACTIVITY_TYPES.SUBTASK_COMPLETED,
         actorId: session.user.id,
         taskId,
         meta: {
-          count: completedSubtasks.length,
+          count: newlyCompletedCount,
+          completedByOwner: isOwner,
+          completedByAssigned: isAssigned && !isOwner,
         },
       });
     }
 
-
-
-
     return NextResponse.json({
       success: true,
       data: updatedTask,
+      permissions: {
+        canEdit: true,
+        canDelete: isAdmin || isOwner, // Only owners and admins can delete
+        isOwner,
+        isAssigned,
+        isAdmin,
+      },
     });
   } catch (error) {
     console.error("PATCH /api/subtasks/breakdown error:", error);
@@ -352,7 +492,62 @@ export async function DELETE(req: Request) {
       );
     }
 
+    // Get the current user session
+    const session = await getServerSession(authOptions);
+    
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    // First, check if task exists and get its ownership info
+    const task = await prisma.task.findUnique({
+      where: { id },
+      select: {
+        ownerId: true,
+        assignedToId: true,
+      },
+    });
+
+    if (!task) {
+      return NextResponse.json(
+        { error: "Task not found" },
+        { status: 404 }
+      );
+    }
+
+    // Check permissions
+    const isAdmin = session.user.role === 'ADMIN';
+    const isOwner = task.ownerId === session.user.id;
+    
+    if (!isAdmin && !isOwner) {
+      return NextResponse.json(
+        { 
+          error: "Access denied - You can only delete your own tasks",
+          detail: "Only task owners or administrators can delete tasks"
+        },
+        { status: 403 }
+      );
+    }
+
+    // Log activity before deleting
+    if (session.user.id) {
+      await logActivity({
+        type: ACTIVITY_TYPES.TASK_DELETED,
+        actorId: session.user.id,
+        taskId: id,
+        meta: {
+          deletedByOwner: isOwner,
+          deletedByAdmin: isAdmin && !isOwner,
+        },
+      });
+    }
+
     await prisma.task.delete({ where: { id } });
+
+    console.log(`🗑️ Task ${id} deleted by user ${session.user.id} (admin: ${isAdmin}, owner: ${isOwner})`);
 
     return NextResponse.json({
       success: true,

@@ -60,14 +60,14 @@ const ACTIVITY_CONFIG = {
   },
   TASK_COMPLETED: {
     icon: CheckCircle,
-    text: "Completed task",
+    text: "Completed a task",
     color: "text-emerald-600",
     bgColor: "bg-emerald-50",
     borderColor: "border-emerald-100"
   },
   SUBTASK_COMPLETED: {
     icon: CheckCircle,
-    text: "Completed Subtask",
+    text: "Completed a Subtask",
     color: "text-blue-600",
     bgColor: "bg-blue-50",
     borderColor: "border-blue-100"
