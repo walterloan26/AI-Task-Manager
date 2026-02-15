@@ -57,20 +57,25 @@ export async function GET() {
     let completed = 0;
     let inProgress = 0;
     let pending = 0;
+    let totalSubtasks = 0;
+    let completedSubtasks = 0;
 
     for (const task of tasks) {
-      const totalSubtasks = task.subtasks.length;
-      const doneSubtasks = task.subtasks.filter(s => s.completed).length;
+      const taskTotalSubtasks  = task.subtasks.length;
+      const taskCompletedSubtasks  = task.subtasks.filter(s => s.completed).length;
 
-      if (totalSubtasks === 0 || doneSubtasks === 0) {
+      totalSubtasks += taskTotalSubtasks;
+      completedSubtasks += taskCompletedSubtasks;
+
+      if (taskTotalSubtasks === 0 || taskCompletedSubtasks  === 0) {
         pending++;
-        console.log(`📊 Task "${task.task}": PENDING (${doneSubtasks}/${totalSubtasks})`);
-      } else if (doneSubtasks === totalSubtasks) {
+        console.log(`📊 Task "${task.task}": PENDING (${taskCompletedSubtasks }/${taskTotalSubtasks})`);
+      } else if (taskCompletedSubtasks  === taskTotalSubtasks) {
         completed++;
-        console.log(`📊 Task "${task.task}": COMPLETED (${doneSubtasks}/${totalSubtasks})`);
+        console.log(`📊 Task "${task.task}": COMPLETED (${taskCompletedSubtasks }/${taskTotalSubtasks})`);
       } else {
         inProgress++;
-        console.log(`📊 Task "${task.task}": IN PROGRESS (${doneSubtasks}/${totalSubtasks})`);
+        console.log(`📊 Task "${task.task}": IN PROGRESS (${taskCompletedSubtasks }/${taskTotalSubtasks})`);
       }
     }
 
@@ -79,10 +84,11 @@ export async function GET() {
       completed,
       inProgress,
       pending,
+      completedSubtasks,  
+      totalSubtasks,     
       userRole: session.user.role,
       isAdmin,
     });
-    console.log('📊 Stats API: Final stats', stats);
     
   } catch (error) {
     console.error('Error fetching task stats:', error);

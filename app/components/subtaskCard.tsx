@@ -87,13 +87,13 @@ export default function SubtaskCard({
     setFocused(false);
   };
 
-  useEffect(() => {
-  console.log('📝 SubtaskCard props updated:', {
-    subtaskId: subtask._uiId,
-    completed: subtask.completed,
-    title: subtask.title
-  });
-}, [subtask]);
+//   useEffect(() => {
+//   console.log('📝 SubtaskCard props updated:', {
+//     subtaskId: subtask._uiId,
+//     completed: subtask.completed,
+//     title: subtask.title
+//   });
+// }, [subtask]);
 
   /* ------------------------------ UI ------------------------------- */
   return (

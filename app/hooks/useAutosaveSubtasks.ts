@@ -78,9 +78,10 @@ export function useAutosaveSubtasks({
   const persist = useCallback(
     (items: UiSubtask[], contentSnap: string) => {
       // Don't save if user hasn't edited (except for initial hydration)
-      if (!userEditedRef.current && hydratedRef.current) {
-        return;
-      }
+      // if (!userEditedRef.current && hydratedRef.current) {
+      //   return;
+      // }
+      // Removed edit gate — snapshot diff already prevents unnecessary saves
 
       // Don't autosave while actively reordering
       if (isReorderingRef.current) {
@@ -162,7 +163,7 @@ export function useAutosaveSubtasks({
               taskId: activeTaskId,
               newlyCompletedCount: Math.abs(newlyCompletedCount),
               wasCompleted: newlyCompletedCount > 0,
-              serverConfirmed: true
+              serverConfirmed: true,
             });
           }
           
@@ -173,7 +174,7 @@ export function useAutosaveSubtasks({
           pendingSnapshotRef.current = null;
 
           // Reset user edited flag
-          userEditedRef.current = false;
+          //userEditedRef.current = false;
 
           onServerUpdate(updatedTask);
 
@@ -230,9 +231,9 @@ export function useAutosaveSubtasks({
     }
 
     // Don't save if user hasn't edited
-    if (!userEditedRef.current) {
-      return;
-    }
+    // if (!userEditedRef.current) {
+    //   return;
+    // }
 
     const contentSnap = contentSnapshot(subtasks);
     const orderSnap = orderSnapshot(subtasks);

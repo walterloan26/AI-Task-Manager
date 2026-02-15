@@ -1,4 +1,5 @@
-// Client-side only event emitter
+// lib/events/clientEvents.ts
+
 type EventCallback = (data?: any) => void;
 
 class ClientEventEmitter {
@@ -12,30 +13,38 @@ class ClientEventEmitter {
   }
 
   off(event: string, callback: EventCallback) {
-    if (this.events.has(event)) {
-      const callbacks = this.events.get(event)!;
-      const index = callbacks.indexOf(callback);
-      if (index > -1) {
-        callbacks.splice(index, 1);
-      }
-    }
+    const callbacks = this.events.get(event);
+    if (!callbacks) return;
+
+    const index = callbacks.indexOf(callback);
+    if (index > -1) callbacks.splice(index, 1);
   }
 
   emit(event: string, data?: any) {
-    if (this.events.has(event)) {
-      // Use setTimeout to avoid blocking UI
-      setTimeout(() => {
-        [...this.events.get(event)!].forEach(callback => {
-          try {
-            callback(data);
-          } catch (error) {
-            console.error(`Error in event handler for ${event}:`, error);
-          }
-        });
-      }, 0);
-    }
+    const callbacks = this.events.get(event);
+    if (!callbacks) return;
+
+    const handlers = [...callbacks];
+
+    queueMicrotask(() => {
+      handlers.forEach(cb => {
+        try {
+          cb(data);
+        } catch (err) {
+          console.error(`Event handler error (${event})`, err);
+        }
+      });
+    });
   }
 }
 
-// Singleton for client-side events
-export const clientEvents = new ClientEventEmitter();
+/*
+  TRUE singleton across entire browser runtime
+*/
+const globalForEvents = globalThis as unknown as {
+  clientEvents?: ClientEventEmitter;
+};
+
+export const clientEvents =
+  globalForEvents.clientEvents ??
+  (globalForEvents.clientEvents = new ClientEventEmitter());
