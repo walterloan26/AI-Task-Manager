@@ -45,7 +45,7 @@ export default async function TasksPage() {
           {/* Sidebar (1/3 width on desktop) */}
           <div className="space-y-6">
             {/* Upcoming Tasks Widget */}
-            <UpcomingTasks userId={session.user.id} limit={5} />
+            <UpcomingTasks userId={session.user.id} limit={5} userRole={session.user.role} />
 
             {/* Quick Add Panel */}
             <QuickAddPanel userId={session.user.id} />

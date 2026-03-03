@@ -462,22 +462,45 @@ export async function PATCH(req: Request) {
       },
       include: {
         subtasks: { orderBy: { orderIndex: "asc" } },
-        owner: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-        assignedTo: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
+        owner: { select: { id: true, name: true, email: true,} },
+        assignedTo: {select: { id: true, name: true, email: true,} },
       },
     });
+    
+    /* ---------------------------- Recalculate Task Status ---------------------------- */
+    const totalSubtasks = updatedTask.subtasks.length;
+    const completedCount = updatedTask.subtasks.filter(s => s.completed === true).length;
+
+    let newStatus: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
+
+    if (totalSubtasks === 0) {
+      newStatus = 'PENDING';
+    } else if (completedCount === 0) {
+      newStatus = 'PENDING';
+    } else if (completedCount === totalSubtasks) {
+      newStatus = 'COMPLETED';
+    } else {
+      newStatus = 'IN_PROGRESS';
+    }
+
+    console.log('🧠 FINAL STATUS:', newStatus);
+
+    console.log('🧪 STATUS DEBUG:', {
+      totalSubtasks,
+      completedCount,
+      completedValues: updatedTask.subtasks.map(s => s.completed)
+    });
+
+    const taskWithStatus = await prisma.task.update({
+      where: { id: taskId },
+      data: { status: newStatus },
+      include: {
+        subtasks: { orderBy: { orderIndex: "asc" } },
+        owner: { select: { id: true, name: true, email: true } },
+        assignedTo: { select: { id: true, name: true, email: true } },
+      },
+    });
+
 
     console.log('✅ AFTER UPDATE - Database result:', {
       taskName: updatedTask.task,
@@ -513,6 +536,13 @@ export async function PATCH(req: Request) {
     });
     
     console.log(`📢 Emitted task:updated for task "${updatedTask.task}" (${taskId})`);
+
+    if (newStatus === 'COMPLETED') {
+      globalEvents.emit('task:completed', {
+      taskId,
+      taskName: updatedTask.task,
+      });
+    }
 
     if (newlyCompletedCount !== 0) {
       globalEvents.emit('subtask:toggled', {
@@ -565,7 +595,7 @@ export async function PATCH(req: Request) {
 
     return NextResponse.json({
       success: true,
-      data: updatedTask,
+      data: taskWithStatus,
       permissions: {
         canEdit: true,
         canDelete: isAdmin || isOwner,

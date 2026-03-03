@@ -151,14 +151,36 @@ export function useAutosaveSubtasks({
 
           const updatedTask = response.data;
 
+          const wasPreviouslyCompleted = lastGoodSubtasksRef.current.length > 0 && 
+            lastGoodSubtasksRef.current.every(s => s.completed);
+          const isNowCompleted = items.every(s => s.completed);
+
+          console.log('🎯 Task completion check:', {
+            taskId: activeTaskId,
+            wasPreviouslyCompleted,
+            isNowCompleted,
+            previousSubtasks: lastGoodSubtasksRef.current.map(s => ({ title: s.title, completed: s.completed })),
+            currentSubtasks: items.map(s => ({ title: s.title, completed: s.completed }))
+          });
+
+          // Emit task:completed event only when the task becomes fully completed
+          if (!wasPreviouslyCompleted && isNowCompleted) {
+            console.log('🎉 TASK FULLY COMPLETED! Emitting task:completed');
+            clientEvents.emit('task:completed', {
+              taskId: activeTaskId,
+              taskName: updatedTask.task || items[0]?.title || 'Task'
+            });
+          }
+
           clientEvents.emit('task:updated', {
             taskId: activeTaskId,
             serverSaved: true,
             subtaskCount: items.length
           });
 
+          // Still emit subtask:toggled for other changes if needed
           const newlyCompletedCount = calculateNewlyCompleted(items, lastGoodSubtasksRef.current);
-          if (newlyCompletedCount !== 0) { // Changed from > 0 to !== 0
+          if (newlyCompletedCount !== 0) {
             clientEvents.emit('subtask:toggled', {
               taskId: activeTaskId,
               newlyCompletedCount: Math.abs(newlyCompletedCount),

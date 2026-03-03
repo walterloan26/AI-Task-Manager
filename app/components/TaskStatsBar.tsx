@@ -32,7 +32,7 @@ export default function TaskStatsBar({
 
     useEffect(() => {
     const handleTaskUpdated = () => {
-      console.log('📊 TaskStatsBar: Event received → refreshing stats');
+      // console.log('📊 TaskStatsBar: Event received → refreshing stats');
       setLastUpdate('Updating...');
       fetchStats();
     };
@@ -63,6 +63,7 @@ export default function TaskStatsBar({
 
 
   const fetchStats = async () => {
+    // console.log(isAdmin, 'isAdmin, taskstas')
     setLoading(true);
     try {
         const timestamp = Date.now();
@@ -75,10 +76,10 @@ export default function TaskStatsBar({
       
     const data = await response.json();
     setStats(prev => {
-      console.log("Stats changed", {
-        old: prev,
-        new: data
-      });
+      // console.log("Stats changed", {
+      //   old: prev,
+      //   new: data
+      // });
       return data;
     });
 
@@ -229,13 +230,13 @@ export default function TaskStatsBar({
           subtitle={`${stats.completedSubtasks} of ${stats.totalSubtasks} Subtasks`}
         />
 
-        <StatCard
+        {/* <StatCard
           title="Completion Rate"
           value={`${completionRate}%`}
           icon={TrendingUp}
           color="purple"
           subtitle={`${stats.completed} of ${stats.total} tasks`}
-        />
+        /> */}
       </div>
 
       {/* Progress visualization */}
