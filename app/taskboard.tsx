@@ -181,8 +181,14 @@ const hasMeaningfulChange = (current: UiSubtask, updated: UiSubtask): boolean =>
 
 // Helper function to emit events
 const emitEvent = (eventName: string, data?: any) => {
-  // Emit to clientEvents (for immediate UI updates in same tab)
   clientEvents.emit(eventName, data);
+
+  // global event for any task change
+  clientEvents.emit("tasks:changed", {
+    source: eventName,
+    ...data
+  });
+
   console.log(`📢 Emitted client event: ${eventName}`, data);
 };
 
@@ -395,8 +401,12 @@ const addSubtask = () => {
       }),
     }).finally(() => {
       isReorderingRef.current = false;
+
+      emitEvent("subtask:reordered", {
+        taskId: activeTaskId
+      });
     });
-  };
+  }
 
   /* ------------------------ Save Status ---------------------------- */
   const saveStatus = !activeTaskId
@@ -525,22 +535,6 @@ const addSubtask = () => {
   const listToRender = isBaseView
   ? subtasks
   : visibleSubtasks;
-
-  useEffect(() => {
-  // Debug: Log all events emitted from this component
-  const originalEmit = clientEvents.emit;
-  clientEvents.emit = function(event: string, data?: any) {
-    console.log(`🔥 TaskBoard EMITTING: ${event}`, data);
-    return originalEmit.call(this, event, data);
-  };
-  
-  return () => {
-    clientEvents.emit = originalEmit;
-  };
-}, []);
-
-
-
 
   /* ----------------------------- UI ------------------------------- */
   return (

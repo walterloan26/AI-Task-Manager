@@ -11,6 +11,7 @@ import { canUseAI } from "@/lib/ai/quota";
 import { logActivity } from "@/lib/logActivity";
 import { ACTIVITY_TYPES } from "@/lib/activityTypes";
 import { globalEvents } from '@/lib/events/eventEmitter';
+import { revalidateTag } from 'next/cache';
 
 import {
   subtaskSchema,
@@ -153,6 +154,9 @@ export async function POST(req: Request) {
       userId: user.id 
     });
 
+    // ✅ Add cache invalidation here
+    revalidateTag('upcoming-tasks');
+
     /* ----------------------- Increment quota ------------------------------- */
     await prisma.user.update({
       where: { id: user.id },
@@ -186,12 +190,20 @@ export async function POST(req: Request) {
 /* -------------------------------------------------------------------------- */
 
 export async function GET(req: Request) {
+
   try {
     if (!(await rateLimitRequest(req, "breakdown:get"))) {
       return NextResponse.json(
         { error: "Rate limit exceeded. Please try again later." },
         { status: 429 }
       );
+    }
+
+    const { searchParams } = new URL(req.url);
+    const forceFresh = searchParams.get('fresh') === 'true';
+    
+    if (forceFresh) {
+      revalidateTag('upcoming-tasks');
     }
 
     // Get the current user session
@@ -555,6 +567,9 @@ export async function PATCH(req: Request) {
       console.log(`📢 Emitted subtask:toggled for task "${updatedTask.task}", count: ${newlyCompletedCount}`);
     }
 
+    revalidateTag('upcoming-tasks');
+
+
     /* ---------------------------- Log Activity ---------------------------- */
     // Log task update activity
     await logActivity({
@@ -698,6 +713,9 @@ export async function DELETE(req: Request) {
       deletedByOwner: isOwner,
       deletedByAdmin: isAdmin && !isOwner
     });
+
+    // ✅ Add cache invalidation here
+    revalidateTag('upcoming-tasks');
     
     console.log(`📢 Emitted task:deleted for task "${task.task}" (${id})`);
 

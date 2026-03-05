@@ -4,6 +4,59 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]/authOptions';
 import { prisma } from '@/lib/prisma';
 
+export const dynamic = 'force-dynamic'
+
+async function getUpcomingTasks(userId: string, isAdmin: boolean, limit: number) {
+
+  let whereClause: any = {
+    status: {
+      in: ['PENDING', 'IN_PROGRESS']
+    }
+  };
+
+  if (!isAdmin) {
+    whereClause = {
+      ...whereClause,
+      OR: [
+        { ownerId: userId },
+        { assignedToId: userId }
+      ]
+    };
+  }
+
+  const tasks = await prisma.task.findMany({
+    where: whereClause,
+    orderBy: { createdAt: 'desc' },
+    take: limit * 2,
+    select: {
+      id: true,
+      task: true,
+      complexity: true,
+      status: true,
+      aiGenerated: true,
+      aiConfidence: true,
+      createdAt: true,
+      updatedAt: true,
+      owner: { select: { name: true, email: true } },
+      createdBy: { select: { name: true, email: true } },
+      assignedTo: { select: { name: true, email: true } },
+      subtasks: {
+        select: {
+          id: true,
+          title: true,
+          completed: true,
+          priority: true,
+          estimateMinutes: true
+        },
+        where: { isDeleted: false },
+        orderBy: { orderIndex: 'asc' }
+      }
+    }
+  });
+
+  return { tasks, whereClause };
+}
+
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
   
@@ -17,74 +70,7 @@ export async function GET(request: Request) {
     const userId = session.user.id;
     const isAdmin = session.user.role === 'ADMIN';
 
-    // Build where clause based on user role
-    let whereClause: any = {
-      status: {
-        not: 'COMPLETED' // Only show non-completed tasks
-      }
-    };
-
-    if (!isAdmin) {
-      whereClause = {
-        ...whereClause,
-        OR: [
-          { ownerId: userId },
-          { assignedToId: userId }
-        ]
-      };
-    }
-
-    // Fetch tasks - since there's no dueDate, we'll sort by createdAt
-    const tasks = await prisma.task.findMany({
-      where: whereClause,
-      orderBy: {
-        createdAt: 'desc' // Show newest first, or you could use updatedAt
-      },
-      take: limit,
-      select: {
-        id: true,
-        task: true,
-        complexity: true,
-        status: true,
-        aiGenerated: true,
-        aiConfidence: true,
-        createdAt: true,
-        updatedAt: true,
-        owner: {
-          select: {
-            name: true,
-            email: true
-          }
-        },
-        createdBy: {
-          select: {
-            name: true,
-            email: true
-          }
-        },
-        assignedTo: {
-          select: {
-            name: true,
-            email: true
-          }
-        },
-        subtasks: {
-          select: {
-            id: true,
-            title: true,
-            completed: true,
-            priority: true,
-            estimateMinutes: true
-          },
-          where: {
-            isDeleted: false
-          },
-          orderBy: {
-            orderIndex: 'asc'
-          }
-        }
-      }
-    });
+    const { tasks, whereClause } = await getUpcomingTasks(userId, isAdmin, limit);
 
     // Calculate progress for each task based on subtasks
     const formattedTasks = tasks.map(task => {
@@ -100,12 +86,30 @@ export async function GET(request: Request) {
                       task.complexity === 'HIGH' ? 'high' :
                       task.complexity === 'MEDIUM' ? 'medium' : 'low';
 
+      // Priority weight
+      const priorityWeight =
+        priority === 'high' ? 3 :
+        priority === 'medium' ? 2 : 1;
+
+      // Status weight
+      const statusWeight =
+        task.status === 'IN_PROGRESS' ? 2 : 1;
+
+      // Final score (priority + progress + active work)
+      const score =
+        (priorityWeight * 50) +
+        (statusWeight * 30) +
+        progress;
+
       return {
         id: task.id,
         title: task.task,
         complexity: task.complexity.toLowerCase(),
         priority: priority,
-        status: task.status.toLowerCase(),
+        score,
+        status: task.status === 'IN_PROGRESS'
+          ? 'in-progress'
+          : task.status.toLowerCase(),
         createdAt: task.createdAt,
         updatedAt: task.updatedAt,
         progress,
@@ -119,14 +123,22 @@ export async function GET(request: Request) {
         aiConfidence: task.aiConfidence
       };
     });
+    // ---- SORT TASKS BY SMART PRIORITY ----
+    formattedTasks.sort((a, b) => b.score - a.score);
+
+    // Only return the best tasks
+    const topTasks = formattedTasks.slice(0, limit);
 
     // Get AI recommendation based on tasks
-    const aiRecommendation = await generateAIRecommendation(formattedTasks, userId);
+    const aiRecommendation = await generateAIRecommendation(topTasks, userId);
+    const totalPending = await prisma.task.count({
+      where: whereClause
+    })
 
     return NextResponse.json({
-      tasks: formattedTasks,
+      tasks: topTasks,
       aiRecommendation,
-      totalPending: tasks.length
+      totalPending
     });
 
   } catch (error) {

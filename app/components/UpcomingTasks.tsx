@@ -6,6 +6,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { clientEvents } from '@/lib/events/clientEvents';
 import TaskDetailsModal from './TaskDetailsModal';
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchUpcomingTasks } from "@/app/api/tasks/upcoming/fetchUpcomingTasks";
+
 
 interface Subtask {
   id: string;
@@ -54,299 +57,131 @@ const UpcomingTasks = ({
   userRole = 'USER'
 }: UpcomingTasksProps) => {
   const router = useRouter();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [aiRecommendation, setAiRecommendation] = useState<AIRecommendation | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdate, setLastUpdate] = useState<string>('Just now');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [removingTaskIds, setRemovingTaskIds] = useState<Set<string>>(new Set());
   const [showCompletionMessage, setShowCompletionMessage] = useState(false);
   const [completedTaskTitle, setCompletedTaskTitle] = useState('');
   const [notificationQueue, setNotificationQueue] = useState<Array<{taskId: string, taskName: string}>>([]);
+  const prevTasksRef = useRef<Task[]>([]);  
   
   // Use ref to track if component is mounted
-  const isMounted = useRef(true);
+  // const isMounted = useRef(true);
   const notificationTimeoutRef = useRef<NodeJS.Timeout>();
-  const prevTasksRef = useRef<Task[]>([]);
+  // const prevTasksRef = useRef<Task[]>([]);
   const notifiedCompletedTasksRef = useRef<Set<string>>(new Set()); // Changed from state to ref
 
   const isAdmin = userRole === 'ADMIN';
   const isManager = userRole === 'MANAGER' || isAdmin;
 
-  // Process notification queue
-  useEffect(() => {
-    console.log('🔔 Queue processor - State:', {
-      notificationQueueLength: notificationQueue.length,
-      showCompletionMessage,
-      currentTask: notificationQueue[0]
-    });
+  const queryClient = useQueryClient();
 
-    if (notificationQueue.length > 0 && !showCompletionMessage) {
-      const nextNotification = notificationQueue[0];
-      console.log('🔔 Showing notification for:', nextNotification);
+  const {
+    data,
+    isLoading,
+    isFetching,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["upcomingTasks", userId, userRole, limit],
+    queryFn: () =>
+      fetchUpcomingTasks({ userId, userRole, limit }),
+    staleTime: 1000 * 60 * 2,
+  });
 
-      setCompletedTaskTitle(nextNotification.taskName);
-      setShowCompletionMessage(true);
-      setRemovingTaskIds(prev => new Set([...prev, nextNotification.taskId]));
+  const tasks: Task[] = data?.tasks ?? [];
+  const aiRecommendation: AIRecommendation | null =
+    data?.aiRecommendation ?? null;
 
-      // Clear previous timeout
-      if (notificationTimeoutRef.current) {
-        clearTimeout(notificationTimeoutRef.current);
-      }
-
-      // Set timeout to hide notification
-      notificationTimeoutRef.current = setTimeout(() => {
-        if (isMounted.current) {
-          setShowCompletionMessage(false);
-          setNotificationQueue(prev => prev.slice(1));
-          setRemovingTaskIds(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(nextNotification.taskId);
-            return newSet;
-          });
-        }
-      }, 4000); // Back to 4 seconds
-    }
-  }, [notificationQueue, showCompletionMessage]);
-
-  // Memoize fetch function to prevent unnecessary recreations
-  const fetchUpcomingTasks = useCallback(async () => {
-  if (!isMounted.current) return null;
-  
-  try {
-    setLoading(true);
-    const timestamp = Date.now();
-    const url = `/api/tasks/upcoming?limit=${limit}&userId=${userId}&role=${userRole}&_=${timestamp}`;
-
-    console.log('📋 Fetching tasks from:', url);
-    
-    const response = await fetch(url);
-    
-    if (!response.ok) {
-      throw new Error('Failed to fetch tasks');
-    }
-
-    const data = await response.json();
-    
-    const tasksWithTime = data.tasks.map((task: any) => {
-      const totalEstimateMinutes = task.subtasks?.reduce(
-        (sum: number, st: Subtask) => sum + (st.estimateMinutes || 0), 
-        0
-      ) || 0;
-      const completedEstimateMinutes = task.subtasks
-        ?.filter((st: Subtask) => st.completed)
-        .reduce((sum: number, st: Subtask) => sum + (st.estimateMinutes || 0), 0) || 0;
-      
-      return {
-        ...task,
-        totalEstimateMinutes,
-        completedEstimateMinutes
-      };
-    });
-    
-    if (isMounted.current) {
-      const previousTasks = prevTasksRef.current;
-      
-      // DEBUG: Log all previous tasks
-      console.log('📋 PREVIOUS TASKS:', previousTasks.map(t => ({
-        id: t.id,
-        title: t.title,
-        status: t.status,
-        progress: t.progress,
-        completedSubtasks: t.completedSubtasks,
-        totalSubtasks: t.totalSubtasks
-      })));
-      
-      // DEBUG: Log all new tasks
-      console.log('📋 NEW TASKS:', tasksWithTime.map((t: Task) => ({
-        id: t.id,
-        title: t.title,
-        status: t.status,
-        progress: t.progress,
-        completedSubtasks: t.completedSubtasks,
-        totalSubtasks: t.totalSubtasks
-      })));
-      
-      // Find tasks that were in previous tasks but are NOT in new tasks
-      const missingTaskIds = new Set(
-        previousTasks
-          .filter(oldTask => !tasksWithTime.some(newTask => newTask.id === oldTask.id))
-          .map(task => task.id)
-      );
-      
-      console.log('🔍 MISSING TASK IDs:', Array.from(missingTaskIds));
-      
-      // Get the full task objects for missing tasks
-      const missingTasks = previousTasks.filter(t => missingTaskIds.has(t.id));
-      
-      console.log('🔍 MISSING TASKS DETAILS:', missingTasks.map(t => ({
-        id: t.id,
-        title: t.title,
-        status: t.status,
-        progress: t.progress,
-        completedSubtasks: t.completedSubtasks,
-        totalSubtasks: t.totalSubtasks
-      })));
-      
-      // Only consider tasks that were in progress or pending
-      const candidateTasks = missingTasks.filter(t => {
-        // If it was in-progress or pending, definitely consider it
-        if (t.status === 'in-progress' || t.status === 'pending') {
-          console.log(`✅ Task "${t.title}" is candidate (status: ${t.status})`);
-          return true;
-        }
-        
-        // Also consider tasks that have all subtasks completed, even if status is something else
-        const allSubtasksCompleted = t.totalSubtasks > 0 && t.completedSubtasks === t.totalSubtasks;
-        if (allSubtasksCompleted) {
-          console.log(`✅ Task "${t.title}" is candidate (all subtasks completed: ${t.completedSubtasks}/${t.totalSubtasks})`);
-          return true;
-        }
-        
-        // If progress is 100%, also consider it
-        if (t.progress === 100) {
-          console.log(`✅ Task "${t.title}" is candidate (progress: 100%)`);
-          return true;
-        }
-        
-        console.log(`❌ Task "${t.title}" is NOT a candidate (status: ${t.status}, progress: ${t.progress}, subtasks: ${t.completedSubtasks}/${t.totalSubtasks})`);
-        return false;
-      });
-      
-      console.log('🎯 CANDIDATE TASKS (in-progress/pending):', candidateTasks.map(t => ({
-        title: t.title,
-        status: t.status
-      })));
-
-      // After missingTasks, add this log
-      missingTasks.forEach(t => {
-        console.log(`📊 MISSING TASK "${t.title}" HAS STATUS: "${t.status}"`);
-      });
-      
-      // Check which ones haven't been notified
-      const notNotifiedTasks = candidateTasks.filter(t => 
-        !notifiedCompletedTasksRef.current.has(t.id)
-      );
-      
-      console.log('✅ NOT NOTIFIED YET:', notNotifiedTasks.map(t => t.title));
-      console.log('✅ CURRENT NOTIFIED SET:', Array.from(notifiedCompletedTasksRef.current));
-      
-      // Add to notification queue
-      if (notNotifiedTasks.length > 0) {
-        console.log('🎉 FOUND COMPLETED TASKS TO NOTIFY:', notNotifiedTasks.map(t => t.title));
-        notNotifiedTasks.forEach((task: Task) => {
-          console.log('➕ Adding to notification queue:', task.title);
-          notifiedCompletedTasksRef.current.add(task.id);
-          setNotificationQueue(prev => [...prev, {
-            taskId: task.id,
-            taskName: task.title
-          }]);
+    useEffect(() => {
+      const refresh = () => {
+        queryClient.invalidateQueries({
+          queryKey: ["upcomingTasks", userId, userRole, limit],
         });
-      } else {
-        console.log('❌ NO COMPLETED TASKS DETECTED');
-      }
+      };
 
-      setTasks(tasksWithTime);
-      prevTasksRef.current = tasksWithTime;
-      setAiRecommendation(data.aiRecommendation);
-      setError(null);
-      
-      const now = new Date();
-      setLastUpdate(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-    }
-    
-    return { tasks: tasksWithTime, aiRecommendation: data.aiRecommendation };
-  } catch (err) {
-    console.error('Error fetching upcoming tasks:', err);
-    if (isMounted.current) {
-      setError('Failed to load upcoming tasks');
-    }
-    return null;
-  } finally {
-    if (isMounted.current) {
-      setLoading(false);
-    }
-  }
-}, [userId, limit, userRole]);
+      clientEvents.on("tasks:changed", refresh);
 
-  useEffect(() => {
-  isMounted.current = true;
-  notifiedCompletedTasksRef.current = new Set();
-  console.log('📋 UpcomingTasks mounted with:', { userId, userRole, isAdmin, isManager });
-  fetchUpcomingTasks();
-  
-  const handleTaskUpdate = () => {
-    console.log('📋 UpcomingTasks: Event received → refreshing tasks');
-    setLastUpdate('Updating...');
-    fetchUpcomingTasks();
-  };
+      return () => {
+        clientEvents.off("tasks:changed", refresh);
+      };
+    }, [queryClient, userId, userRole, limit]);
 
-  // Only handle task:completed events if they come through
-  const handleTaskCompleted = (data: { taskId: string; taskName: string }) => {
-    console.log('🎉 Task completed event received:', data);
-    
-    if (!notifiedCompletedTasksRef.current.has(data.taskId)) {
-      notifiedCompletedTasksRef.current.add(data.taskId);
-      setNotificationQueue(prev => [...prev, data]);
-    }
-  };
+  // Process notification queue
+    useEffect(() => {
+    if (notificationQueue.length === 0) return;
 
-  // Test notification from console
-  const testNotification = () => {
-    console.log('🔔 Test notification triggered from console');
-    const testData = { 
-      taskId: 'test-' + Date.now(), 
-      taskName: 'Test Task from Console' 
-    };
-    handleTaskCompleted(testData);
-  };
+    const next = notificationQueue[0];
 
-  // Subscribe to events
-  clientEvents.on('task:created', handleTaskUpdate);
-  clientEvents.on('task:deleted', handleTaskUpdate);
-  clientEvents.on('task:updated', handleTaskUpdate);
-  clientEvents.on('task:completed', handleTaskCompleted); // Keep this in case events start working
-  
-  // For testing in browser console
-  window.addEventListener('test-notification', testNotification);
-  (window as any).showTestNotification = testNotification;
+    setCompletedTaskTitle(next.taskName);
+    setShowCompletionMessage(true);
+    setRemovingTaskIds(prev => new Set([...prev, next.taskId]));
 
-  // POLLING - Check every 3 seconds (this is your main notification source)
-  const pollInterval = setInterval(() => {
-    if (document.visibilityState === 'visible') {
-      console.log('📋 UpcomingTasks: Polling for updates');
-      fetchUpcomingTasks();
-    }
-  }, 3000);
-
-  const handleVisibilityChange = () => {
-    if (document.visibilityState === 'visible') {
-      console.log('📋 UpcomingTasks: Tab became visible, refreshing');
-      fetchUpcomingTasks();
-    }
-  };
-  
-  document.addEventListener('visibilitychange', handleVisibilityChange);
-  
-  return () => {
-    isMounted.current = false;
-    clearInterval(pollInterval);
-    document.removeEventListener('visibilitychange', handleVisibilityChange);
-    window.removeEventListener('test-notification', testNotification);
-    delete (window as any).showTestNotification;
-    
-    clientEvents.off('task:created', handleTaskUpdate);
-    clientEvents.off('task:deleted', handleTaskUpdate);
-    clientEvents.off('task:updated', handleTaskUpdate);
-    clientEvents.off('task:completed', handleTaskCompleted);
-    
+    // Clear any previous timer
     if (notificationTimeoutRef.current) {
       clearTimeout(notificationTimeoutRef.current);
     }
-  };
-}, [userId, limit, userRole, fetchUpcomingTasks]);;
+
+    notificationTimeoutRef.current = setTimeout(() => {
+      setShowCompletionMessage(false);
+
+      // Remove first item AFTER hide animation starts
+      setTimeout(() => {
+        setNotificationQueue(prev => prev.slice(1));
+        setRemovingTaskIds(prev => {
+          const updated = new Set(prev);
+          updated.delete(next.taskId);
+          return updated;
+        });
+      }, 300); // small delay for smooth exit
+
+    }, 4000);
+
+  }, [notificationQueue]); // ← ONLY queue
+  
+
+
+
+    useEffect(() => {
+    if (!data?.tasks) return;
+
+    const previousTasks = prevTasksRef.current;
+    const currentTasks = data.tasks;
+
+    // Detect tasks that disappeared (likely completed)
+    const missingTaskIds = new Set(
+      previousTasks
+        .filter(oldTask => !currentTasks.some(newTask => newTask.id === oldTask.id))
+        .map(task => task.id)
+    );
+
+    const missingTasks = previousTasks.filter(t =>
+      missingTaskIds.has(t.id)
+    );
+
+    const candidateTasks = missingTasks.filter(t =>
+      t.status === 'in-progress' ||
+      t.status === 'pending' ||
+      t.progress === 100 ||
+      (t.totalSubtasks > 0 && t.completedSubtasks === t.totalSubtasks)
+    );
+
+    const notNotified = candidateTasks.filter(
+      t => !notifiedCompletedTasksRef.current.has(t.id)
+    );
+
+    if (notNotified.length > 0) {
+      notNotified.forEach(task => {
+        notifiedCompletedTasksRef.current.add(task.id);
+        setNotificationQueue(prev => [
+          ...prev,
+          { taskId: task.id, taskName: task.title }
+        ]);
+      });
+    }
+
+    prevTasksRef.current = currentTasks;
+  }, [data]);
 
 
   const getPriorityColor = (priority: Task['priority']) => {
@@ -434,7 +269,7 @@ const UpcomingTasks = ({
     }
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
         <div className="animate-pulse">
@@ -447,13 +282,13 @@ const UpcomingTasks = ({
     );
   }
 
-  if (error) {
+  if (error instanceof Error) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
         <div className="text-center py-8">
           <div className="text-red-500 mb-2">{error}</div>
           <button 
-            onClick={fetchUpcomingTasks}
+            onClick={() => refetch()}
             className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700"
           >
             Retry
@@ -492,7 +327,9 @@ const UpcomingTasks = ({
           setNotificationQueue(prev => [...prev, testData]);
           
           // Also trigger a refresh
-          fetchUpcomingTasks();
+          queryClient.invalidateQueries({
+          queryKey: ["upcomingTasks", userId, userRole, limit],
+        });
         }}
         className="mb-4 px-3 py-1 bg-blue-500 text-white rounded-lg text-xs hover:bg-blue-600 transition-colors"
       >
@@ -501,12 +338,6 @@ const UpcomingTasks = ({
       )}
 
       {/* Bottom-right corner notification - SUPER PROMINENT */}
-      {/* Debug info - remove later */}
-      <div className="fixed top-4 right-4 z-[10000] bg-black text-white p-4 rounded-lg">
-        <p>showCompletionMessage: {showCompletionMessage ? 'true' : 'false'}</p>
-        <p>completedTaskTitle: {completedTaskTitle || 'none'}</p>
-        <p>notificationQueue length: {notificationQueue.length}</p>
-      </div>
       {showCompletionMessage && (
         <div className="fixed bottom-6 right-6 z-[9999] animate-slide-up">
           <div className="bg-gradient-to-r from-green-600 to-green-500 dark:from-green-700 dark:to-green-600 border-2 border-green-300 dark:border-green-500 rounded-xl shadow-2xl p-5 min-w-[350px] max-w-md transform hover:scale-105 transition-transform duration-200">
@@ -528,7 +359,16 @@ const UpcomingTasks = ({
               <button 
                 onClick={(e) => {
                   e.stopPropagation();
+
+                  if (notificationTimeoutRef.current) {
+                    clearTimeout(notificationTimeoutRef.current);
+                  }
+
                   setShowCompletionMessage(false);
+
+                  setTimeout(() => {
+                    setNotificationQueue(prev => prev.slice(1));
+                  }, 200);
                 }}
                 className="ml-3 text-white/90 hover:text-white bg-white/20 hover:bg-white/30 rounded-full p-2 flex-shrink-0 transition-all duration-200 shadow-md"
               >
@@ -599,7 +439,7 @@ const UpcomingTasks = ({
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {activeTasksCount} task{activeTasksCount !== 1 ? 's' : ''} · 
               {remainingTime > 0 && ` ${formatEstimate(remainingTime)} remaining`}
-              {loading ? ' • Updating...' : ` • Updated ${lastUpdate}`}
+              {isFetching ? ' • Updating...' : ''}
             </p>
           </div>
         </div>
@@ -612,7 +452,11 @@ const UpcomingTasks = ({
             View All
           </button>
           <button 
-            onClick={fetchUpcomingTasks}
+            onClick={() =>
+              queryClient.invalidateQueries({
+                queryKey: ["upcomingTasks", userId, userRole, limit],
+              })
+            }
             className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
             title="Refresh"
           >
@@ -868,7 +712,11 @@ const UpcomingTasks = ({
           setSelectedTask(null);
         }}
         userRole={userRole}
-        onTaskUpdate={fetchUpcomingTasks}
+        onTaskUpdate={() =>
+          queryClient.invalidateQueries({
+            queryKey: ["upcomingTasks", userId, userRole, limit],
+          })
+        }
       />
 
       {/* Animation styles */}
