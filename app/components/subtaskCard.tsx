@@ -183,6 +183,12 @@ export default function SubtaskCard({
               key={p}
               onClick={(e) => {
                 e.stopPropagation();
+                console.log('🎯 Priority button clicked:', {
+        clickedPriority: p,
+        currentPriority: subtask.priority,
+        currentPriorityUpper: subtask.priority.toUpperCase(),
+        buttonPriorityUpper: p.toUpperCase()
+      });
                 const buttonPriority = p.toUpperCase() as Priority;
                 const currentPriority = subtask.priority.toUpperCase();
                 const willUpdate = buttonPriority !== currentPriority;

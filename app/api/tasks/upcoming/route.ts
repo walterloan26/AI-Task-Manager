@@ -80,11 +80,26 @@ export async function GET(request: Request) {
         ? Math.round((completedSubtasks / totalSubtasks) * 100) 
         : 0;
 
+      // Calculate time estimates
+      const totalEstimateMinutes = task.subtasks.reduce((sum, st) => sum + (st.estimateMinutes || 0), 0);
+      const completedEstimateMinutes = task.subtasks
+        .filter(st => st.completed)
+        .reduce((sum, st) => sum + (st.estimateMinutes || 0), 0);
+
       // Determine priority based on subtask priorities or complexity
       const hasHighPrioritySubtasks = task.subtasks.some(s => s.priority === 'HIGH');
-      const priority = hasHighPrioritySubtasks ? 'high' : 
-                      task.complexity === 'HIGH' ? 'high' :
-                      task.complexity === 'MEDIUM' ? 'medium' : 'low';
+      const hasMediumPrioritySubtasks = task.subtasks.some(s => s.priority === 'MEDIUM');
+      
+      let priority: 'low' | 'medium' | 'high' = 'low';
+      if (hasHighPrioritySubtasks) {
+        priority = 'high';
+      } else if (hasMediumPrioritySubtasks) {
+        priority = 'medium';
+      } else if (task.complexity === 'HIGH') {
+        priority = 'high';
+      } else if (task.complexity === 'MEDIUM') {
+        priority = 'medium';
+      }
 
       // Priority weight
       const priorityWeight =
@@ -115,14 +130,20 @@ export async function GET(request: Request) {
         progress,
         totalSubtasks,
         completedSubtasks,
+        totalEstimateMinutes: totalEstimateMinutes || undefined,
+        completedEstimateMinutes: completedEstimateMinutes || undefined,
         owner: task.owner,
         createdBy: task.createdBy,
         assignedTo: task.assignedTo,
-        subtasks: task.subtasks,
+        subtasks: task.subtasks.map(st => ({
+          ...st,
+          priority: st.priority?.toLowerCase() || 'medium'
+        })),
         aiGenerated: task.aiGenerated,
         aiConfidence: task.aiConfidence
       };
     });
+    
     // ---- SORT TASKS BY SMART PRIORITY ----
     formattedTasks.sort((a, b) => b.score - a.score);
 

@@ -30,70 +30,51 @@ export default function TaskStatsBar({
   const [loading, setLoading] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<string>('Just now');
 
-    useEffect(() => {
-    const handleTaskUpdated = () => {
-      // console.log('📊 TaskStatsBar: Event received → refreshing stats');
+  useEffect(() => {
+    const handleTaskChanged = () => {
+      console.log('📊 TaskStatsBar: tasks:changed event received → refreshing stats');
       setLastUpdate('Updating...');
       fetchStats();
     };
 
-    clientEvents.on('task:created', handleTaskUpdated);
-    clientEvents.on('task:deleted', handleTaskUpdated);
-    clientEvents.on('subtask:toggled', handleTaskUpdated);
-    clientEvents.on('task:updated', handleTaskUpdated);
-
-    const pollInterval = setInterval(() => {
-      const now = Date.now();
-      const lastPoll = localStorage.getItem('lastStatsPoll');
-
-      if (!lastPoll || now - parseInt(lastPoll) > 30000) {
-        fetchStats();
-        localStorage.setItem('lastStatsPoll', now.toString());
-      }
-    }, 30000);
+    clientEvents.on('tasks:changed', handleTaskChanged);
 
     return () => {
-      clientEvents.off('task:created', handleTaskUpdated);
-      clientEvents.off('task:deleted', handleTaskUpdated);
-      clientEvents.off('subtask:toggled', handleTaskUpdated);
-      clientEvents.off('task:updated', handleTaskUpdated);
-      clearInterval(pollInterval);
+      clientEvents.off('tasks:changed', handleTaskChanged);
     };
   }, [userId, userRole]);
 
 
   const fetchStats = async () => {
-    // console.log(isAdmin, 'isAdmin, taskstas')
     setLoading(true);
     try {
-        const timestamp = Date.now();
+      const timestamp = Date.now();
       const response = await fetch(
         `/api/tasks/stats?userId=${userId}&role=${userRole}&_=${timestamp}`
-    );
+      );
+      
       if (!response.ok) {
         throw new Error(`Failed to fetch stats: ${response.status}`);
       }
       
-    const data = await response.json();
-    setStats(prev => {
-      // console.log("Stats changed", {
-      //   old: prev,
-      //   new: data
-      // });
-      return data;
-    });
-
-    //setStats(data);
+      const data = await response.json();
       
-      // Update timestamp
-    const now = new Date();
-    setLastUpdate(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+      // Only update if data actually changed
+      setStats(prev => {
+        if (JSON.stringify(prev) !== JSON.stringify(data)) {
+          console.log('📊 Stats updated:', data);
+          return data;
+        }
+        return prev;
+      });
+      
+      const now = new Date();
+      setLastUpdate(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
       
     } catch (error) {
       console.error('📊 TaskStatsBar: Error fetching stats:', error);
     } finally {
       setLoading(false);
-      console.log('📊 TaskStatsBar: fetchStats complete');
     }
   };
 
@@ -284,26 +265,6 @@ export default function TaskStatsBar({
             <div className="text-sm text-gray-700 dark:text-gray-300 font-medium">Pending</div>
           </div>
         </div>
-        <button
-  onClick={async () => {
-    const response = await fetch('/api/tasks/stats/debug');
-    const data = await response.json();
-    
-    
-    // Show which tasks are In Progress
-    const inProgressTasks = data.detailed.filter((t: any) => t.status === 'IN_PROGRESS');
-    
-    
-    // Show which tasks just moved to Completed
-    const newlyCompleted = data.detailed.filter((t: any) => 
-      t.status === 'COMPLETED' && 
-      t.progress.split('/')[0] === t.progress.split('/')[1] // All subtasks done
-    );
-  }}
-  className="text-xs px-2 py-1 bg-red-100 hover:bg-red-200 rounded"
->
-  Debug Analysis
-</button>
       </div>
     </>
   );

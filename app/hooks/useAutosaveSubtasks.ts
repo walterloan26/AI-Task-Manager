@@ -1,3 +1,4 @@
+// hooks/useAutosaveSubtasks.ts
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -12,7 +13,7 @@ interface Params {
   onRollback?: (items: UiSubtask[]) => void;
   onSubtaskSaved?: () => void;
   isReorderingRef: React.MutableRefObject<boolean>;
-  userEditedRef: React.MutableRefObject<boolean>; // Add this back
+  userEditedRef: React.MutableRefObject<boolean>;
 }
 
 const AUTOSAVE_DELAY = 800;
@@ -26,7 +27,7 @@ export function useAutosaveSubtasks({
   onRollback,
   onSubtaskSaved,
   isReorderingRef,
-  userEditedRef, // Add this
+  userEditedRef,
 }: Params) {
   /* ----------------------------- refs ----------------------------- */
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -65,24 +66,14 @@ export function useAutosaveSubtasks({
   const orderSnapshot = (items: UiSubtask[]) =>
     JSON.stringify(items.map((s) => s.orderIndex));
 
-  const calculateNewlyCompleted = (currentItems: UiSubtask[], previousItems: UiSubtask[]): number => {
-    if (!previousItems || previousItems.length === 0) return 0;
-    
-    const previousCompleted = previousItems.filter(s => s.completed).length;
-    const currentCompleted = currentItems.filter(s => s.completed).length;
-    
-    return currentCompleted - previousCompleted;
-  };
-
   /* ---------------------------- persist --------------------------- */
   const persist = useCallback(
     (items: UiSubtask[], contentSnap: string) => {
-      // Don't save if user hasn't edited (except for initial hydration)
-      // if (!userEditedRef.current && hydratedRef.current) {
-      //   return;
-      // }
-      // Removed edit gate — snapshot diff already prevents unnecessary saves
-
+      console.log('💾 useAutosaveSubtasks persist called', {
+      taskId: activeTaskId,
+      itemsCount: items.length,
+      contentSnap: contentSnap.substring(0, 100) // First 100 chars
+    });
       // Don't autosave while actively reordering
       if (isReorderingRef.current) {
         return;
@@ -149,56 +140,50 @@ export function useAutosaveSubtasks({
             throw new Error("Invalid response from server");
           }
 
-          const updatedTask = response.data;
+          const serverTask = response.data;
+
+          // Calculate the correct progress from our local subtasks
+          const totalSubtasks = items.length;
+          const completedSubtasks = items.filter(s => s.completed).length;
+          const correctProgress = totalSubtasks > 0 
+            ? Math.round((completedSubtasks / totalSubtasks) * 100) 
+            : 0;
+
+          // Merge server data with our locally calculated progress
+          const correctedTask = {
+            ...serverTask,
+            progress: correctProgress,
+            completedSubtasks,
+            totalSubtasks,
+            subtasks: items.map(s => ({
+              id: s.id,
+              title: s.title,
+              completed: s.completed,
+              priority: s.priority,
+              estimateMinutes: s.estimateMinutes,
+              orderIndex: s.orderIndex
+            }))
+          };
 
           const wasPreviouslyCompleted = lastGoodSubtasksRef.current.length > 0 && 
             lastGoodSubtasksRef.current.every(s => s.completed);
-          const isNowCompleted = items.every(s => s.completed);
+          const isNowCompleted = items.length > 0 && items.every(s => s.completed);
 
-          console.log('🎯 Task completion check:', {
-            taskId: activeTaskId,
-            wasPreviouslyCompleted,
-            isNowCompleted,
-            previousSubtasks: lastGoodSubtasksRef.current.map(s => ({ title: s.title, completed: s.completed })),
-            currentSubtasks: items.map(s => ({ title: s.title, completed: s.completed }))
-          });
-
-          // Emit task:completed event only when the task becomes fully completed
-          if (!wasPreviouslyCompleted && isNowCompleted) {
-            console.log('🎉 TASK FULLY COMPLETED! Emitting task:completed');
-            clientEvents.emit('task:completed', {
-              taskId: activeTaskId,
-              taskName: updatedTask.task || items[0]?.title || 'Task'
-            });
-          }
-
-          clientEvents.emit('task:updated', {
-            taskId: activeTaskId,
-            serverSaved: true,
-            subtaskCount: items.length
-          });
-
-          // Still emit subtask:toggled for other changes if needed
-          const newlyCompletedCount = calculateNewlyCompleted(items, lastGoodSubtasksRef.current);
-          if (newlyCompletedCount !== 0) {
-            clientEvents.emit('subtask:toggled', {
-              taskId: activeTaskId,
-              newlyCompletedCount: Math.abs(newlyCompletedCount),
-              wasCompleted: newlyCompletedCount > 0,
-              serverConfirmed: true,
-            });
-          }
-          
           // Update refs
           lastSavedContentRef.current = contentSnap;
           lastSavedOrderRef.current = orderSnap;
           lastGoodSubtasksRef.current = items.map((s) => ({ ...s }));
           pendingSnapshotRef.current = null;
 
-          // Reset user edited flag
-          //userEditedRef.current = false;
+          // Call onServerUpdate with our corrected task data
+          onServerUpdate?.(correctedTask);
 
-          onServerUpdate(updatedTask);
+          // ALWAYS emit tasks:changed after any save - this is the only event we need!
+          clientEvents.emit('tasks:changed', {
+            source: 'autosave',
+            taskId: activeTaskId,
+            timestamp: Date.now()
+          });
 
           // Ensure minimum saving duration for better UX
           const elapsed = Date.now() - savingStartRef.current;
@@ -251,11 +236,6 @@ export function useAutosaveSubtasks({
     if (isReorderingRef.current) {
       return;
     }
-
-    // Don't save if user hasn't edited
-    // if (!userEditedRef.current) {
-    //   return;
-    // }
 
     const contentSnap = contentSnapshot(subtasks);
     const orderSnap = orderSnapshot(subtasks);

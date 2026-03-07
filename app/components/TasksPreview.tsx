@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Calendar, CheckCircle, Clock, ArrowRight, Plus, AlertCircle } from 'lucide-react';
+import { clientEvents } from '@/lib/events/clientEvents';
 
 interface Task {
   id: string;
@@ -30,10 +31,6 @@ export default function TasksPreview({ userId, limit = 3 }: TasksPreviewProps) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchTasks();
-  }, [userId]);
 
   const fetchTasks = async () => {
     try {
@@ -83,6 +80,25 @@ export default function TasksPreview({ userId, limit = 3 }: TasksPreviewProps) {
       setLoading(false);
     }
   };
+
+  // Initial fetch
+  useEffect(() => {
+    fetchTasks();
+  }, [userId]);
+
+  // Listen for tasks:changed events
+  useEffect(() => {
+    const handleTasksChanged = () => {
+      console.log('📋 TasksPreview: tasks changed, refreshing...');
+      fetchTasks();
+    };
+
+    clientEvents.on('tasks:changed', handleTasksChanged);
+
+    return () => {
+      clientEvents.off('tasks:changed', handleTasksChanged);
+    };
+  }, []);
 
   const getCompletedCount = (task: Task) => {
     return task.subtasks.filter(st => st.completed).length;

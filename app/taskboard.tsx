@@ -33,7 +33,7 @@ export default function TaskBoard(props: TaskBoardProps) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const [taskToDelete, setTaskToDelete] = useState<any>(null);
-  const [filter, setFilter] = useState<{ completed?: boolean; priority?: "Low" | "Medium" | "High" }>({});
+  const [filter, setFilter] = useState<{ completed?: boolean; priority?: "LOW" | "MEDIUM" | "HIGH" }>({});
   const [sort, setSort] = useState<"priority" | "completed" | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const userEditedRef = useRef(false);
@@ -73,7 +73,20 @@ export default function TaskBoard(props: TaskBoardProps) {
 );
 
   const toPersisted = (items: UiSubtask[]) =>
-    items.map((s) => ({
+    items.map((s) => {
+      console.log('🔄 toPersisted input:', {
+      id: s.id,
+      _uiId: s._uiId,
+      priority: s.priority,
+      priorityType: typeof s.priority
+    });
+    const upperPriority = s.priority?.toUpperCase();
+    console.log('🔄 toPersisted after upperCase:', {
+      original: s.priority,
+      upperCase: upperPriority,
+      willBe: upperPriority || "MEDIUM"
+    });
+    return {
       id: s.id, // Include ID if it exists (for updates)
       title: s.title || "",
       description: s.description || "",
@@ -81,7 +94,8 @@ export default function TaskBoard(props: TaskBoardProps) {
       completed: s.completed || false,
       priority: (s.priority?.toUpperCase() || "MEDIUM") as "HIGH" | "MEDIUM" | "LOW",
       orderIndex: s.orderIndex || 0,
-    }));
+    }
+    });
 
   /* --------------------------- Fetching ---------------------------- */
 
@@ -119,10 +133,16 @@ export default function TaskBoard(props: TaskBoardProps) {
       activeTaskId,
       subtasks,
       toPersisted,
-      onServerUpdate: (updatedTask) =>
-        setTasks((prev) =>
-          prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
-        ),
+      onServerUpdate: (updatedTask) => {
+        setTasks(prev =>
+          prev.map(t => (t.id === updatedTask.id ? updatedTask : t))
+        )
+
+        // Only update metadata, not subtasks
+        setTasks(prev =>
+          prev.map(t => (t.id === updatedTask.id ? updatedTask : t))
+        )
+      }, 
       userEditedRef,
       isReorderingRef,   
       onSubtaskSaved: () => setSavingSubtaskId(null),
@@ -160,6 +180,24 @@ export default function TaskBoard(props: TaskBoardProps) {
   /* ---------------------------- Helpers ---------------------------- */
 // Helper function to check if a subtask has meaningful changes
 const hasMeaningfulChange = (current: UiSubtask, updated: UiSubtask): boolean => {
+
+  const priorityChanged = current.priority.toUpperCase() !== updated.priority.toUpperCase();
+
+
+  console.log('🔍 Priority change check:', {
+    current: current.priority,
+    updated: updated.priority,
+    currentUpper: current.priority.toUpperCase(),
+    updatedUpper: updated.priority.toUpperCase(),
+    changed: priorityChanged,
+    isLow: updated.priority === 'low' || updated.priority === 'LOW'
+  });
+  
+  if (priorityChanged) {
+    console.log('🎯 Priority changed detected!');
+    return true;
+  }
+
   console.log('🔍 hasMeaningfulChange comparison:', {
     currentCompleted: current.completed,
     updatedCompleted: updated.completed,
@@ -180,29 +218,23 @@ const hasMeaningfulChange = (current: UiSubtask, updated: UiSubtask): boolean =>
 };
 
 // Helper function to emit events
-const emitEvent = (eventName: string, data?: any) => {
-  clientEvents.emit(eventName, data);
-
-  // global event for any task change
+const emitTaskChange = (taskId?: string) => {
+  console.log('📢 emitTaskChange called for task:', taskId || activeTaskId, 'priority change to LOW');
   clientEvents.emit("tasks:changed", {
-    source: eventName,
-    ...data
+    taskId: taskId || activeTaskId,
+    timestamp: Date.now()
   });
-
-  console.log(`📢 Emitted client event: ${eventName}`, data);
 };
 
 /* ------------------------ Update Handler ------------------------ */
-const updateSubtask = (updated: UiSubtask) => {
 
-  console.log("🔄 updateSubtask START", {
-    taskId: activeTaskId,
-    subtaskId: updated._uiId,
-    completed: updated.completed,
-    timestamp: Date.now(),
-    stack: new Error().stack?.split('\n').slice(2, 5).join(' | ') // Where was it called from?
+const updateSubtask = (updated: UiSubtask) => {
+  console.log('📥 updateSubtask received:', {
+    _uiId: updated._uiId,
+    priority: updated.priority,
+    priorityType: typeof updated.priority,
+    fullObject: updated
   });
-  
   // Find the current subtask
   const currentSubtask = subtasks.find(s => s._uiId === updated._uiId);
   
@@ -211,49 +243,45 @@ const updateSubtask = (updated: UiSubtask) => {
     return;
   }
   
+  // Normalize the priority
   const normalizedUpdated = {
     ...updated,
     priority: updated.priority.toUpperCase() as Priority,
   };
   
-  // Update local state
-  setSubtasks((prev) => 
-    prev.map((s) => (s._uiId === normalizedUpdated._uiId ? normalizedUpdated : s))
+  // Update local state immediately for instant UI feedback
+  setSubtasks(prev => 
+    prev.map(s => s._uiId === normalizedUpdated._uiId ? normalizedUpdated : s)
   );
   
-  // Only trigger save if something actually changed
+  // Check if this is a completion toggle
+  const isCompletionToggle = currentSubtask.completed !== normalizedUpdated.completed;
+  
+  // Always mark as edited if there's a meaningful change
   if (hasMeaningfulChange(currentSubtask, normalizedUpdated)) {
     userEditedRef.current = true;
     setSavingSubtaskId(normalizedUpdated._uiId);
+    emitTaskChange(activeTaskId);
     
-    // Emit event for stats update
-    emitEvent('task:updated', { 
-      taskId: activeTaskId,
-      subtaskId: normalizedUpdated._uiId,
-      completed: normalizedUpdated.completed,
-      wasCompleted: currentSubtask.completed
-    });
-
-    // Special event for completion toggles
-    if (currentSubtask.completed !== normalizedUpdated.completed) {
-      emitEvent('subtask:toggled', {
-        taskId: activeTaskId,
+    // Emit event for completion toggles
+    if (isCompletionToggle) {
+      console.log('🎯 Subtask toggled:', {
         subtaskId: normalizedUpdated._uiId,
-        completed: normalizedUpdated.completed,
+        from: currentSubtask.completed,
+        to: normalizedUpdated.completed
       });
     }
-  };
+  }
 };
+
+  
 /* ------------------------ Subtask Deletion ------------------------ */
 
   const deleteSubtask = (uiId: string) => {
     userEditedRef.current = true;
     setSubtasks((prev) => normalizeOrder(prev.filter((s) => s._uiId !== uiId)));
 
-    emitEvent('subtask:deleted', { 
-    taskId: activeTaskId,
-    subtaskId: uiId
-  });
+    emitTaskChange(activeTaskId);
   };
 
   /* ------------------------ Add Subtask ------------------------ */
@@ -266,17 +294,14 @@ const addSubtask = () => {
     description: "",
     estimateMinutes: 30,
     completed: false,
-    priority: "Medium",
+    priority: "MEDIUM",
     orderIndex: subtasks.length,
   };
   
   setSubtasks((prev) => [...prev, newSubtask]);
   
   // Emit event for new subtask
-  emitEvent('subtask:created', { 
-    taskId: activeTaskId,
-    subtaskId: newSubtask._uiId
-  });
+  emitTaskChange(activeTaskId);
 };
 
   /* ------------------------ Task Deletion ------------------------ */
@@ -303,10 +328,7 @@ const addSubtask = () => {
       setTasks(prev => prev.filter(t => t.id !== taskToDelete.id));
 
       // Emit event for deleted task
-      emitEvent('task:deleted', { 
-        taskId: taskToDelete.id,
-        hadSubtasks: taskToDelete.subtasks?.length > 0
-      });
+      emitTaskChange(taskToDelete.id);
       
       if (activeTaskId === taskToDelete.id) {
         setActiveTaskId(null);
@@ -336,7 +358,7 @@ const addSubtask = () => {
         sortDirection === "asc" ? Number(a.completed) - Number(b.completed) : Number(b.completed) - Number(a.completed)
       );
     if (sort === "priority") {
-      const p = { High: 3, Medium: 2, Low: 1 };
+      const p = { HIGH: 3, MEDIUM: 2, LOW: 1 };
       return [...list].sort((a, b) =>
         sortDirection === "asc" ? p[a.priority] - p[b.priority] : p[b.priority] - p[a.priority]
       );
@@ -402,9 +424,7 @@ const addSubtask = () => {
     }).finally(() => {
       isReorderingRef.current = false;
 
-      emitEvent("subtask:reordered", {
-        taskId: activeTaskId
-      });
+      emitTaskChange(activeTaskId);
     });
   }
 
@@ -467,10 +487,7 @@ const addSubtask = () => {
       // userEditedRef.current = false;
       setTaskInput("");
 
-      emitEvent('task:created', { 
-      taskId: taskData.id,
-      subtasksCount: subtasksArray.length
-    });
+      emitTaskChange(taskData.id);
       
     } catch (error) {
       console.error("Breakdown failed:", error);
@@ -757,7 +774,7 @@ const addSubtask = () => {
               onChange={(e) =>
                 setFilter((prev) => ({
                   ...prev,
-                  priority: e.target.value ? (e.target.value as "Low" | "Medium" | "High") : undefined,
+                  priority: e.target.value ? (e.target.value as "LOW" | "MEDIUM" | "HIGH") : undefined,
                 }))
               }
               className="px-2 py-1 border border-gray-200 dark:border-gray-700 rounded text-xs 

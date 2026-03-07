@@ -51,6 +51,17 @@ interface UpcomingTasksProps {
   userRole?: string;
 }
 
+function debounce(fn: (...args: any[]) => void, delay: number) {
+  let timer: NodeJS.Timeout;
+
+  return (...args: any[]) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      fn(...args);
+    }, delay);
+  };
+}
+
 const UpcomingTasks = ({ 
   userId, 
   limit = 5,
@@ -65,8 +76,6 @@ const UpcomingTasks = ({
   const [notificationQueue, setNotificationQueue] = useState<Array<{taskId: string, taskName: string}>>([]);
   const prevTasksRef = useRef<Task[]>([]);  
   
-  // Use ref to track if component is mounted
-  // const isMounted = useRef(true);
   const notificationTimeoutRef = useRef<NodeJS.Timeout>();
   // const prevTasksRef = useRef<Task[]>([]);
   const notifiedCompletedTasksRef = useRef<Set<string>>(new Set()); // Changed from state to ref
@@ -93,19 +102,20 @@ const UpcomingTasks = ({
   const aiRecommendation: AIRecommendation | null =
     data?.aiRecommendation ?? null;
 
-    useEffect(() => {
-      const refresh = () => {
-        queryClient.invalidateQueries({
-          queryKey: ["upcomingTasks", userId, userRole, limit],
-        });
-      };
+  useEffect(() => {
+    const refresh = debounce(() => {
+      queryClient.invalidateQueries({
+        queryKey: ["upcomingTasks", userId, userRole, limit],
+      });
+    }, 100);
 
-      clientEvents.on("tasks:changed", refresh);
+    // Listen ONLY to tasks:changed - that's all you need!
+    clientEvents.on("tasks:changed", refresh);
 
-      return () => {
-        clientEvents.off("tasks:changed", refresh);
-      };
-    }, [queryClient, userId, userRole, limit]);
+    return () => {
+      clientEvents.off("tasks:changed", refresh);
+    };
+  }, [queryClient, userId, userRole, limit]);
 
   // Process notification queue
     useEffect(() => {
@@ -158,6 +168,7 @@ const UpcomingTasks = ({
     const missingTasks = previousTasks.filter(t =>
       missingTaskIds.has(t.id)
     );
+    
 
     const candidateTasks = missingTasks.filter(t =>
       t.status === 'in-progress' ||
@@ -172,6 +183,12 @@ const UpcomingTasks = ({
 
     if (notNotified.length > 0) {
       notNotified.forEach(task => {
+        console.log(
+  task.title,
+  task.completedSubtasks,
+  task.totalSubtasks,
+  task.progress
+)
         notifiedCompletedTasksRef.current.add(task.id);
         setNotificationQueue(prev => [
           ...prev,
@@ -312,30 +329,6 @@ const UpcomingTasks = ({
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 relative">
-      {/* Test button - Only shows in development */}
-      {process.env.NODE_ENV === 'development' && (
-        <button 
-        onClick={() => {
-          // Create a test notification that uses the same handler as real ones
-          const testData = { 
-            taskId: 'test-' + Date.now(), 
-            taskName: 'Test Task' 
-          };
-          console.log('🔔 Test button clicked', testData);
-          
-          // Add to notification queue directly
-          setNotificationQueue(prev => [...prev, testData]);
-          
-          // Also trigger a refresh
-          queryClient.invalidateQueries({
-          queryKey: ["upcomingTasks", userId, userRole, limit],
-        });
-        }}
-        className="mb-4 px-3 py-1 bg-blue-500 text-white rounded-lg text-xs hover:bg-blue-600 transition-colors"
-      >
-        Test Notification
-      </button>
-      )}
 
       {/* Bottom-right corner notification - SUPER PROMINENT */}
       {showCompletionMessage && (
@@ -450,19 +443,6 @@ const UpcomingTasks = ({
             className="px-4 py-2 text-sm font-medium text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-300 transition-colors"
           >
             View All
-          </button>
-          <button 
-            onClick={() =>
-              queryClient.invalidateQueries({
-                queryKey: ["upcomingTasks", userId, userRole, limit],
-              })
-            }
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-            title="Refresh"
-          >
-            <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
           </button>
         </div>
       </div>
@@ -712,11 +692,16 @@ const UpcomingTasks = ({
           setSelectedTask(null);
         }}
         userRole={userRole}
-        onTaskUpdate={() =>
+        onTaskUpdate={() => {
           queryClient.invalidateQueries({
             queryKey: ["upcomingTasks", userId, userRole, limit],
-          })
-        }
+          });
+          
+          clientEvents.emit('tasks:changed', { 
+            taskId: selectedTask?.id,
+            timestamp: Date.now() 
+          });
+        }}
       />
 
       {/* Animation styles */}

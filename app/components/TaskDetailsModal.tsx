@@ -4,6 +4,7 @@
 import { X, Calendar, Clock, User, Flag, CheckCircle, Circle, Timer, Edit, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { clientEvents } from '@/lib/events/clientEvents';
 
 interface Subtask {
   id: string;
@@ -110,6 +111,10 @@ const TaskDetailsModal = ({
       
       if (response.ok) {
         onTaskUpdate?.();
+        clientEvents.emit('tasks:changed', { 
+          taskId: task.id,
+          timestamp: Date.now() 
+        });
         onClose();
       }
     } catch (error) {
@@ -119,18 +124,22 @@ const TaskDetailsModal = ({
     }
   };
 
-  const handleToggleSubtask = async (subtaskId: string, completed: boolean) => {
+  const handleToggleSubtask = async (subtaskId: string, currentCompleted: boolean) => {
     setLoading(true);
     try {
       const response = await fetch(`/api/tasks/${task.id}/subtasks/${subtaskId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ completed: !completed }),
+        body: JSON.stringify({ completed: !currentCompleted }), // Toggle the current state
       });
       
       if (response.ok) {
         onTaskUpdate?.();
-        // You might want to refresh the task data here
+        clientEvents.emit('tasks:changed', { 
+          taskId: task.id,
+          subtaskId,
+          timestamp: Date.now() 
+        });
       }
     } catch (error) {
       console.error('Error toggling subtask:', error);
