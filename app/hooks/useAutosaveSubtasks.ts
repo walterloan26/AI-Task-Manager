@@ -149,9 +149,26 @@ export function useAutosaveSubtasks({
             ? Math.round((completedSubtasks / totalSubtasks) * 100) 
             : 0;
 
+          const calculateTaskPriorityFromSubtasks = (subtasks: any[]): "LOW" | "MEDIUM" | "HIGH" => {
+              if (subtasks.length === 0) return "MEDIUM";
+              
+              const priorities = subtasks.map(s => s.priority);
+              
+              if (priorities.includes("HIGH")) return "HIGH";
+              if (priorities.includes("MEDIUM")) return "MEDIUM";
+              return "LOW";
+            };
+
+            // In the persist function, after calculating progress:
+            
+            // Calculate the correct priority from our local subtasks
+            const correctPriority = calculateTaskPriorityFromSubtasks(items);
+
+
           // Merge server data with our locally calculated progress
           const correctedTask = {
             ...serverTask,
+            priority: correctPriority,
             progress: correctProgress,
             completedSubtasks,
             totalSubtasks,

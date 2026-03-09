@@ -210,14 +210,6 @@ export default function TaskStatsBar({
           color="green"
           subtitle={`${stats.completedSubtasks} of ${stats.totalSubtasks} Subtasks`}
         />
-
-        {/* <StatCard
-          title="Completion Rate"
-          value={`${completionRate}%`}
-          icon={TrendingUp}
-          color="purple"
-          subtitle={`${stats.completed} of ${stats.total} tasks`}
-        /> */}
       </div>
 
       {/* Progress visualization */}

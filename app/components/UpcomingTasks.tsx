@@ -1,14 +1,13 @@
 // app/components/UpcomingTasks.tsx
 "use client";
 
-import { Calendar, Clock, Flag, MoreVertical, CheckCircle, Circle, Timer, Shield, Users, X } from 'lucide-react';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { Calendar, Clock, CheckCircle, Circle, Timer, Shield, Users, X } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { clientEvents } from '@/lib/events/clientEvents';
 import TaskDetailsModal from './TaskDetailsModal';
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchUpcomingTasks } from "@/app/api/tasks/upcoming/fetchUpcomingTasks";
-
 
 interface Subtask {
   id: string;
@@ -22,7 +21,7 @@ interface Task {
   id: string;
   title: string;
   complexity: string;
-  priority: 'low' | 'medium' | 'high';
+  priority: 'LOW' | 'MEDIUM' | 'HIGH';
   status: 'pending' | 'in-progress' | 'completed';
   createdAt: Date;
   updatedAt: Date;
@@ -53,14 +52,21 @@ interface UpcomingTasksProps {
 
 function debounce(fn: (...args: any[]) => void, delay: number) {
   let timer: NodeJS.Timeout;
-
   return (...args: any[]) => {
     clearTimeout(timer);
-    timer = setTimeout(() => {
-      fn(...args);
-    }, delay);
+    timer = setTimeout(() => fn(...args), delay);
   };
 }
+
+const calculateTaskPriority = (subtasks: Subtask[]): 'LOW' | 'MEDIUM' | 'HIGH' => {
+  if (!subtasks?.length) return 'MEDIUM';
+  
+  const priorities = subtasks.map(s => s.priority);
+  
+  if (priorities.includes('HIGH')) return 'HIGH';
+  if (priorities.includes('MEDIUM')) return 'MEDIUM';
+  return 'LOW';
+};
 
 const UpcomingTasks = ({ 
   userId, 
@@ -74,11 +80,10 @@ const UpcomingTasks = ({
   const [showCompletionMessage, setShowCompletionMessage] = useState(false);
   const [completedTaskTitle, setCompletedTaskTitle] = useState('');
   const [notificationQueue, setNotificationQueue] = useState<Array<{taskId: string, taskName: string}>>([]);
-  const prevTasksRef = useRef<Task[]>([]);  
   
+  const prevTasksRef = useRef<Task[]>([]);
   const notificationTimeoutRef = useRef<NodeJS.Timeout>();
-  // const prevTasksRef = useRef<Task[]>([]);
-  const notifiedCompletedTasksRef = useRef<Set<string>>(new Set()); // Changed from state to ref
+  const notifiedCompletedTasksRef = useRef<Set<string>>(new Set());
 
   const isAdmin = userRole === 'ADMIN';
   const isManager = userRole === 'MANAGER' || isAdmin;
@@ -93,14 +98,23 @@ const UpcomingTasks = ({
     refetch,
   } = useQuery({
     queryKey: ["upcomingTasks", userId, userRole, limit],
-    queryFn: () =>
-      fetchUpcomingTasks({ userId, userRole, limit }),
+    queryFn: async () => {
+      const result = await fetchUpcomingTasks({ userId, userRole, limit });
+      
+      if (result.tasks) {
+        result.tasks = result.tasks.map((task: any) => ({
+          ...task,
+          priority: calculateTaskPriority(task.subtasks || []),
+        }));
+      }
+      
+      return result;
+    },
     staleTime: 1000 * 60 * 2,
   });
 
   const tasks: Task[] = data?.tasks ?? [];
-  const aiRecommendation: AIRecommendation | null =
-    data?.aiRecommendation ?? null;
+  const aiRecommendation: AIRecommendation | null = data?.aiRecommendation ?? null;
 
   useEffect(() => {
     const refresh = debounce(() => {
@@ -109,7 +123,6 @@ const UpcomingTasks = ({
       });
     }, 100);
 
-    // Listen ONLY to tasks:changed - that's all you need!
     clientEvents.on("tasks:changed", refresh);
 
     return () => {
@@ -118,7 +131,7 @@ const UpcomingTasks = ({
   }, [queryClient, userId, userRole, limit]);
 
   // Process notification queue
-    useEffect(() => {
+  useEffect(() => {
     if (notificationQueue.length === 0) return;
 
     const next = notificationQueue[0];
@@ -127,7 +140,6 @@ const UpcomingTasks = ({
     setShowCompletionMessage(true);
     setRemovingTaskIds(prev => new Set([...prev, next.taskId]));
 
-    // Clear any previous timer
     if (notificationTimeoutRef.current) {
       clearTimeout(notificationTimeoutRef.current);
     }
@@ -135,7 +147,6 @@ const UpcomingTasks = ({
     notificationTimeoutRef.current = setTimeout(() => {
       setShowCompletionMessage(false);
 
-      // Remove first item AFTER hide animation starts
       setTimeout(() => {
         setNotificationQueue(prev => prev.slice(1));
         setRemovingTaskIds(prev => {
@@ -143,32 +154,25 @@ const UpcomingTasks = ({
           updated.delete(next.taskId);
           return updated;
         });
-      }, 300); // small delay for smooth exit
-
+      }, 300);
     }, 4000);
 
-  }, [notificationQueue]); // ← ONLY queue
-  
+  }, [notificationQueue]);
 
-
-
-    useEffect(() => {
+  // Track completed tasks for notifications
+  useEffect(() => {
     if (!data?.tasks) return;
 
     const previousTasks = prevTasksRef.current;
     const currentTasks = data.tasks;
 
-    // Detect tasks that disappeared (likely completed)
     const missingTaskIds = new Set(
       previousTasks
         .filter(oldTask => !currentTasks.some(newTask => newTask.id === oldTask.id))
         .map(task => task.id)
     );
 
-    const missingTasks = previousTasks.filter(t =>
-      missingTaskIds.has(t.id)
-    );
-    
+    const missingTasks = previousTasks.filter(t => missingTaskIds.has(t.id));
 
     const candidateTasks = missingTasks.filter(t =>
       t.status === 'in-progress' ||
@@ -183,12 +187,6 @@ const UpcomingTasks = ({
 
     if (notNotified.length > 0) {
       notNotified.forEach(task => {
-        console.log(
-  task.title,
-  task.completedSubtasks,
-  task.totalSubtasks,
-  task.progress
-)
         notifiedCompletedTasksRef.current.add(task.id);
         setNotificationQueue(prev => [
           ...prev,
@@ -200,12 +198,12 @@ const UpcomingTasks = ({
     prevTasksRef.current = currentTasks;
   }, [data]);
 
-
   const getPriorityColor = (priority: Task['priority']) => {
     switch (priority) {
-      case 'high': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
-      case 'medium': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300';
-      case 'low': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300';
+      case 'HIGH': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
+      case 'MEDIUM': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300';
+      case 'LOW': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300';
+      default: return 'bg-gray-100 text-gray-800';
     }
   };
 
@@ -221,7 +219,6 @@ const UpcomingTasks = ({
     const now = new Date();
     const taskDate = new Date(date);
     
-    // Set both dates to midnight for accurate day comparison
     now.setHours(0, 0, 0, 0);
     taskDate.setHours(0, 0, 0, 0);
     
@@ -254,13 +251,13 @@ const UpcomingTasks = ({
     const timeProgress = getTimeProgress(task);
     const hasTimeEstimate = task.totalEstimateMinutes && task.totalEstimateMinutes > 0;
     
-    if (task.priority === 'high' && daysOld > 2 && (!hasTimeEstimate || (timeProgress && timeProgress < 30))) {
+    if (task.priority === 'HIGH' && daysOld > 2 && (!hasTimeEstimate || (timeProgress && timeProgress < 30))) {
       return 'overdue';
     }
-    if (task.priority === 'high' && daysOld > 1 && (!hasTimeEstimate || (timeProgress && timeProgress < 50))) {
+    if (task.priority === 'HIGH' && daysOld > 1 && (!hasTimeEstimate || (timeProgress && timeProgress < 50))) {
       return 'urgent';
     }
-    if (task.priority === 'medium' && daysOld > 3 && (!hasTimeEstimate || timeProgress === 0)) {
+    if (task.priority === 'MEDIUM' && daysOld > 3 && (!hasTimeEstimate || timeProgress === 0)) {
       return 'soon';
     }
     return 'normal';
@@ -303,7 +300,7 @@ const UpcomingTasks = ({
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
         <div className="text-center py-8">
-          <div className="text-red-500 mb-2">{error}</div>
+          <div className="text-red-500 mb-2">{error.message}</div>
           <button 
             onClick={() => refetch()}
             className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700"
@@ -315,12 +312,10 @@ const UpcomingTasks = ({
     );
   }
 
-  // Calculate time summaries
   const totalEstimatedTime = tasks.reduce((sum, task) => sum + (task.totalEstimateMinutes || 0), 0);
   const completedTime = tasks.reduce((sum, task) => sum + (task.completedEstimateMinutes || 0), 0);
   const remainingTime = totalEstimatedTime - completedTime;
 
-  // Filter tasks based on role and exclude completed tasks
   const filteredTasks = tasks
     .filter(task => task.status !== 'completed')
     .slice(0, limit);
@@ -329,8 +324,7 @@ const UpcomingTasks = ({
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 relative">
-
-      {/* Bottom-right corner notification - SUPER PROMINENT */}
+      {/* Completion Notification */}
       {showCompletionMessage && (
         <div className="fixed bottom-6 right-6 z-[9999] animate-slide-up">
           <div className="bg-gradient-to-r from-green-600 to-green-500 dark:from-green-700 dark:to-green-600 border-2 border-green-300 dark:border-green-500 rounded-xl shadow-2xl p-5 min-w-[350px] max-w-md transform hover:scale-105 transition-transform duration-200">
@@ -350,15 +344,11 @@ const UpcomingTasks = ({
                 </p>
               </div>
               <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-
+                onClick={() => {
                   if (notificationTimeoutRef.current) {
                     clearTimeout(notificationTimeoutRef.current);
                   }
-
                   setShowCompletionMessage(false);
-
                   setTimeout(() => {
                     setNotificationQueue(prev => prev.slice(1));
                   }, 200);
@@ -368,8 +358,6 @@ const UpcomingTasks = ({
                 <X className="w-5 h-5" />
               </button>
             </div>
-            
-            {/* Progress bar animation */}
             <div className="mt-3 h-1 bg-white/30 rounded-full overflow-hidden">
               <div className="h-full bg-white rounded-full animate-shrink"></div>
             </div>
@@ -377,27 +365,7 @@ const UpcomingTasks = ({
         </div>
       )}
 
-      {/* Admin/Manager badge */}
-      {isAdmin && (
-        <div className="mb-4 p-4 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 rounded-xl border border-purple-200 dark:border-purple-800">
-          <div className="flex items-center">
-            <Shield className="w-5 h-5 text-purple-600 dark:text-purple-400 mr-3" />
-            <div className="flex-1">
-              <div className="flex items-center">
-                <span className="px-2 py-1 text-xs font-semibold rounded-full bg-purple-600 text-white mr-2">
-                  ADMIN VIEW
-                </span>
-                <span className="text-sm font-medium text-purple-800 dark:text-purple-300">
-                  Viewing all users' active tasks
-                </span>
-              </div>
-              <p className="text-xs text-purple-600 dark:text-purple-400 mt-1">
-                You can see, edit, and delete any task in the system
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Role Badges */}
 
       {isManager && !isAdmin && (
         <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
@@ -420,6 +388,7 @@ const UpcomingTasks = ({
         </div>
       )}
 
+      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center space-x-3">
           <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900">
@@ -436,18 +405,9 @@ const UpcomingTasks = ({
             </p>
           </div>
         </div>
-        
-        <div className="flex items-center space-x-2">
-          <button 
-            onClick={() => router.push('/tasks')}
-            className="px-4 py-2 text-sm font-medium text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-300 transition-colors"
-          >
-            View All
-          </button>
-        </div>
       </div>
 
-      {/* Time Summary Cards - Only show if there are time estimates */}
+      {/* Time Summary */}
       {totalEstimatedTime > 0 && (
         <div className="grid grid-cols-3 gap-3 mb-6">
           <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3">
@@ -471,6 +431,7 @@ const UpcomingTasks = ({
         </div>
       )}
 
+      {/* Tasks List */}
       <div className="space-y-4">
         {filteredTasks.map((task) => {
           const urgency = getTaskUrgency(task);
@@ -498,7 +459,7 @@ const UpcomingTasks = ({
                   <div className="flex items-center space-x-3 mb-2">
                     <div className="flex items-center space-x-2">
                       <span className={`px-2 py-1 text-xs rounded-full ${getPriorityColor(task.priority)}`}>
-                        {task.priority}
+                        {task.priority.charAt(0) + task.priority.slice(1).toLowerCase()}
                       </span>
                       <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(task.status)}`}>
                         {task.status}
@@ -522,9 +483,8 @@ const UpcomingTasks = ({
                     {task.title}
                   </h3>
                   
-                  {/* Progress bars */}
+                  {/* Progress */}
                   <div className="space-y-2 mb-3">
-                    {/* Subtask progress */}
                     {task.totalSubtasks > 0 && (
                       <div>
                         <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
@@ -543,7 +503,6 @@ const UpcomingTasks = ({
                       </div>
                     )}
                     
-                    {/* Time progress - Only show if there are time estimates */}
                     {timeProgress !== null && (
                       <div>
                         <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
@@ -560,32 +519,14 @@ const UpcomingTasks = ({
                     )}
                   </div>
                   
-                  {/* Compact metadata row with button on the right - Using text-sm */}
+                  {/* Metadata */}
                   <div className="flex items-center justify-between mt-2">
                     <div className="flex items-center flex-wrap gap-1.5">
-                      {/* Created date badge */}
                       <div className="flex items-center space-x-1 text-sm text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50 px-2 py-1 rounded-md">
                         <Calendar className="w-3.5 h-3.5" />
                         <span>{formatDate(task.createdAt)}</span>
                       </div>
                       
-                      {/* Subtasks count badge */}
-                      {task.totalSubtasks > 0 && (
-                        <div className={`flex items-center space-x-1 text-sm px-2 py-1 rounded-md ${
-                          task.completedSubtasks === task.totalSubtasks 
-                            ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400' 
-                            : 'bg-gray-50 dark:bg-gray-900/50 text-gray-500 dark:text-gray-400'
-                        }`}>
-                          {task.completedSubtasks === task.totalSubtasks ? (
-                            <CheckCircle className="w-3.5 h-3.5" />
-                          ) : (
-                            <Circle className="w-3.5 h-3.5" />
-                          )}
-                          <span>{task.completedSubtasks}/{task.totalSubtasks}</span>
-                        </div>
-                      )}
-                      
-                      {/* Time estimate badge */}
                       {timeEstimate && (
                         <div className="flex items-center space-x-1 text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-2 py-1 rounded-md">
                           <Timer className="w-3.5 h-3.5" />
@@ -593,17 +534,9 @@ const UpcomingTasks = ({
                         </div>
                       )}
                     </div>
-
-                    {/* View Details button */}
-                    <button 
-                      onClick={(e) => handleViewDetails(task, e)}
-                      className="px-2 py-1 text-xs font-medium text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-300 transition-colors whitespace-nowrap"
-                    >
-                      View Details →
-                    </button>
                   </div>
 
-                  {/* Show assignment info - Inline with pure CSS wrapping */}
+                  {/* Assignment Info */}
                   {(isManager || isAdmin) && (task.assignedTo?.name || task.createdBy?.name) && (
                     <div className="flex flex-col text-sm text-gray-500 dark:text-gray-400 mt-2 border-t border-gray-100 dark:border-gray-700 pt-2">
                       {task.assignedTo?.name && (
@@ -635,7 +568,7 @@ const UpcomingTasks = ({
         })}
       </div>
 
-      {/* AI Suggestions */}
+      {/* AI Recommendations */}
       {aiRecommendation && (
         <div className="mt-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-gray-900 dark:to-gray-800 rounded-lg border border-blue-100 dark:border-blue-900">
           <div className="flex items-start space-x-3">
@@ -660,7 +593,7 @@ const UpcomingTasks = ({
         </div>
       )}
 
-      {/* Empty State - Different messages based on role */}
+      {/* Empty State */}
       {filteredTasks.length === 0 && (
         <div className="text-center py-12">
           <Calendar className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
@@ -684,6 +617,7 @@ const UpcomingTasks = ({
           )}
         </div>
       )}
+
       <TaskDetailsModal
         task={selectedTask}
         isOpen={isModalOpen}
@@ -704,7 +638,7 @@ const UpcomingTasks = ({
         }}
       />
 
-      {/* Animation styles */}
+      {/* Animation Styles */}
       <style jsx>{`
         @keyframes slideUp {
           from {

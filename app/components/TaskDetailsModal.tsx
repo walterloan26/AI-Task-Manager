@@ -18,7 +18,7 @@ interface Task {
   id: string;
   title: string;
   complexity: string;
-  priority: 'low' | 'medium' | 'high';
+  priority: 'LOW' | 'MEDIUM' | 'HIGH';
   status: 'pending' | 'in-progress' | 'completed';
   createdAt: Date;
   updatedAt: Date;
@@ -63,9 +63,9 @@ const TaskDetailsModal = ({
 
   const getPriorityColor = (priority: Task['priority']) => {
     switch (priority) {
-      case 'high': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
-      case 'medium': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300';
-      case 'low': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300';
+      case 'HIGH': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
+      case 'MEDIUM': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300';
+      case 'LOW': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300';
     }
   };
 
@@ -189,7 +189,7 @@ const TaskDetailsModal = ({
               <div className="flex flex-wrap gap-2">
                 <span className={`px-3 py-1 text-sm rounded-full ${getPriorityColor(task.priority)}`}>
                   <Flag className="w-3 h-3 inline mr-1" />
-                  {task.priority} priority
+                  {task.priority.charAt(0) + task.priority.slice(1).toLowerCase()} priority
                 </span>
                 <span className={`px-3 py-1 text-sm rounded-full ${getStatusColor(task.status)}`}>
                   {task.status}

@@ -87,13 +87,6 @@ export default function SubtaskCard({
     setFocused(false);
   };
 
-//   useEffect(() => {
-//   console.log('📝 SubtaskCard props updated:', {
-//     subtaskId: subtask._uiId,
-//     completed: subtask.completed,
-//     title: subtask.title
-//   });
-// }, [subtask]);
 
   /* ------------------------------ UI ------------------------------- */
   return (
@@ -184,16 +177,21 @@ export default function SubtaskCard({
               onClick={(e) => {
                 e.stopPropagation();
                 console.log('🎯 Priority button clicked:', {
-        clickedPriority: p,
-        currentPriority: subtask.priority,
-        currentPriorityUpper: subtask.priority.toUpperCase(),
-        buttonPriorityUpper: p.toUpperCase()
-      });
+                  clickedPriority: p,
+                  currentPriority: subtask.priority,
+                  currentPriorityUpper: subtask.priority.toUpperCase(),
+                  buttonPriorityUpper: p.toUpperCase()
+                });
                 const buttonPriority = p.toUpperCase() as Priority;
                 const currentPriority = subtask.priority.toUpperCase();
-                const willUpdate = buttonPriority !== currentPriority;
 
-                if (willUpdate) update({ priority: p })
+                if (buttonPriority !== currentPriority) {
+                  console.log('📤 Sending priority update:', {
+                    original: p,
+                    normalized: buttonPriority
+                  });
+                  update({ priority: buttonPriority }); // Send uppercase
+                }
               }}
 
               className={`w-2 h-2 rounded-full transition-colors 

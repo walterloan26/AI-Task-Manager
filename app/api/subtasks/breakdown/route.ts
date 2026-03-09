@@ -186,7 +186,7 @@ export async function POST(req: Request) {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                                    GET                                     */
+/*                                    GET                                      */
 /* -------------------------------------------------------------------------- */
 
 export async function GET(req: Request) {
@@ -240,7 +240,6 @@ export async function GET(req: Request) {
       orderBy: { createdAt: "desc" },
       include: {
         subtasks: {
-          where: { completed: false },
           orderBy: { orderIndex: "asc" },
         },
         // Include owner and assignedTo info
@@ -261,12 +260,70 @@ export async function GET(req: Request) {
       },
     });
 
+    const tasksWithPriority = tasks.map(task => {
+      // Debug log for each task
+      console.log(`🎯 Task "${task.task}" (${task.id}):`, {
+        subtaskPriorities: task.subtasks.map(s => s.priority),
+        subtaskCount: task.subtasks.length
+      });
+      // Calculate priority from subtasks
+      let taskPriority: 'LOW' | 'MEDIUM' | 'HIGH' = 'MEDIUM';
+      
+      if (task.subtasks.length > 0) {
+        const priorities = task.subtasks.map(s => s.priority);
+        
+        if (priorities.includes('HIGH')) {
+          taskPriority = 'HIGH';
+          console.log(`  → Setting HIGH because HIGH present`);
+        } else if (priorities.includes('MEDIUM')) {
+          taskPriority = 'MEDIUM';
+          console.log(`  → Setting MEDIUM because MEDIUM present`);
+        } else if (priorities.every(p => p === 'LOW')) {
+          taskPriority = 'LOW';
+          console.log(`  → Setting LOW because LOW present`);
+        }
+        // Fallback for any other case
+        else {
+          taskPriority = 'LOW';
+        }
+        console.log(`🎯 Priority calculation for "${task.task}":`, {
+  subtaskPriorities: task.subtasks.map(s => s.priority),
+  hasHigh: priorities.includes('HIGH'),
+  hasMedium: priorities.includes('MEDIUM'),
+  allLow: priorities.every(p => p === 'LOW'),
+  calculatedPriority: taskPriority
+});
+      }
+
+      
+      
+      // Calculate progress
+      const completedSubtasks = task.subtasks.filter(s => s.completed).length;
+      const progress = task.subtasks.length > 0 
+        ? Math.round((completedSubtasks / task.subtasks.length) * 100) 
+        : 0;
+      
+      return {
+        ...task,
+        priority: taskPriority, // Add calculated priority
+        progress, // Also calculate progress if not stored
+        completedSubtasks, // Add this if not stored
+        totalSubtasks: task.subtasks.length, // Add this if not stored
+      };
+    });
+
+    console.log('📊 Final task priorities:', tasksWithPriority.map(t => ({
+      name: t.task,
+      priority: t.priority,
+      subtaskPriorities: t.subtasks.map((s: any) => s.priority)
+    })));
+
     console.log(`📋 GET /api/subtasks/breakdown: Returning ${tasks.length} tasks for user ${session.user.id} (role: ${session.user.role})`);
 
     return NextResponse.json({
       success: true,
       count: tasks.length,
-      data: tasks,
+      data: tasksWithPriority,
       userRole: session.user.role,
       isAdmin,
     });
@@ -407,6 +464,26 @@ export async function PATCH(req: Request) {
       existingCompleted: existingTask.subtasks.filter(s => s.completed).length,
       totalSubtasks: existingTask.subtasks.length
     });
+
+    // In your PATCH endpoint, right after creating/updating subtasks:
+
+    console.log('💾 Subtasks being saved:', normalizedSubtasks.map(s => ({
+      title: s.title,
+      priority: s.priority,
+      isLow: s.priority === 'LOW'
+    })));
+
+    // After the update, log what was actually saved
+    const verifySubtasks = await prisma.subtask.findMany({
+      where: { taskId },
+      select: { id: true, title: true, priority: true }
+    });
+
+    console.log('✅ Verified saved subtasks:', verifySubtasks.map(s => ({
+      title: s.title,
+      priority: s.priority,
+      isLow: s.priority === 'LOW'
+    })));
 
     // Check permissions - who can update this task?
     const isAdmin = session.user.role === 'ADMIN';

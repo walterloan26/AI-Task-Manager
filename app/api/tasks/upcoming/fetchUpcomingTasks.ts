@@ -17,5 +17,19 @@ export async function fetchUpcomingTasks({
 
   const data = await response.json();
 
-  return data;
+  const normalizedData = {
+    ...data,
+    tasks: data.tasks?.map((task: any) => ({
+      ...task,
+      // Normalize task priority to uppercase
+      priority: task.priority?.toUpperCase() || 'MEDIUM',
+      // Also normalize subtask priorities if they exist
+      subtasks: task.subtasks?.map((subtask: any) => ({
+        ...subtask,
+        priority: subtask.priority?.toUpperCase() || 'MEDIUM'
+      }))
+    }))
+  };
+
+  return normalizedData;
 }
