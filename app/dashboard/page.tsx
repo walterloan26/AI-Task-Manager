@@ -8,6 +8,10 @@ import { getDashboardActivitySummary } from "@/lib/dashboard/activitySummary";
 import { getProductivityScore, getTaskCompletionRate } from "@/lib/dashboard/productivity";
 import UserProfileCard from "@/app/components/UserProfileCard";
 import AIInsights from "@/app/components/AIInsights";
+import WeeklyTrendsChart from "@/app/components/WeeklyTrendsChart";
+import AchievementBadges from "@/app/components/AchievementBadges";
+import WeeklyGoals from "@/app/components/WeeklyGoals";
+import PriorityDistribution from "@/app/components/PriorityDistribution";
 import { 
   LayoutGrid, 
   CheckCircle2, 
@@ -239,29 +243,40 @@ export default async function DashboardPage() {
           ))}
         </div>
 
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left Column: Recent Activity */}
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-              Today's Activity
-            </h2>
-            <RecentActivity userId={session.user.id} />
-            <AISummary hasAnyActivity={hasAnyActivity} />
+        {/* New: Weekly Trends Chart - Full width */}
+        <div className="w-full">
+          <WeeklyTrendsChart userId={session.user.id} />
+        </div>
+
+        {/* Main Content Grid - Now with 3 columns */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left Column: Recent Activity (unchanged) */}
+          <div className="lg:col-span-1">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                Today's Activity
+              </h2>
+              <RecentActivity userId={session.user.id} />
+              <AISummary hasAnyActivity={hasAnyActivity} />
+            </div>
           </div>
 
-          {/* Right Column: AI & Quick Actions */}
-          <div className="space-y-6">
-            {/* AI Insights */}
-            <AIInsights />
-            
-            {/* Quick Actions */}
-            <QuickActionsSection />
+          {/* Middle Column: Goals & Achievements */}
+          <div className="lg:col-span-1 space-y-6">
+            <WeeklyGoals userId={session.user.id} />
+            <AchievementBadges userId={session.user.id} />
+          </div>
 
-            {/* AI Model Status */}
-            <AIModelStatus />
+          {/* Right Column: AI & Quick Actions (updated) */}
+          <div className="lg:col-span-1 space-y-6">
+            <AIInsights />
+            <PriorityDistribution userId={session.user.id} />
+            <QuickActionsSection />
           </div>
         </div>
+
+        {/* AI Model Status - Full width at bottom */}
+        <AIModelStatus />
       </div>
     </NavigationLayout>
   );

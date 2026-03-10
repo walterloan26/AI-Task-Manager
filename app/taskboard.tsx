@@ -26,9 +26,13 @@ type FilterState = {
 
 type SortState = "priority" | "completed" | null;
 
+type TaskComplexity = "simple" | "medium" | "complex";
+
+
 export default function TaskBoard({ userId, userEmail }: TaskBoardProps) {
   /* ----------------------------- State ----------------------------- */
   const [taskInput, setTaskInput] = useState("");
+  const [taskComplexity, setTaskComplexity] = useState<TaskComplexity>("medium");
   const [tasks, setTasks] = useState<any[]>([]);
   const [subtasks, setSubtasks] = useState<UiSubtask[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
@@ -425,7 +429,11 @@ export default function TaskBoard({ userId, userEmail }: TaskBoardProps) {
       const res = await fetch("/api/subtasks/breakdown", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ task: taskInput }),
+        body: JSON.stringify({ 
+          task: taskInput,
+          complexity: taskComplexity
+        
+        }),
       });
 
       if (!res.ok) {
@@ -447,6 +455,7 @@ export default function TaskBoard({ userId, userEmail }: TaskBoardProps) {
       setSubtasks(toUi(subtasksArray));
 
       setTaskInput("");
+      setTaskComplexity("medium");
       emitTaskChange(taskData.id);
     } catch (error: any) {
       console.error("Breakdown failed:", error);
@@ -618,6 +627,23 @@ export default function TaskBoard({ userId, userEmail }: TaskBoardProps) {
           onChange={(e) => setTaskInput(e.target.value)}
           disabled={loading}
         />
+
+        {/* Add Complexity Selector */}
+        <div className="flex items-center gap-3">
+          <label className="text-sm text-gray-600 dark:text-gray-400">Complexity:</label>
+          <select
+            value={taskComplexity}
+            onChange={(e) => setTaskComplexity(e.target.value as Priority)}
+            className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm
+                       focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-300
+                       bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+            disabled={loading}
+          >
+            <option value="simple">Simple</option>
+            <option value="medium">Medium</option>
+            <option value="complex">Complex</option>
+          </select>
+        </div>
 
         <button
           onClick={handleBreakdown}
