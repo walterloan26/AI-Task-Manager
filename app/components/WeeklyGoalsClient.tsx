@@ -35,6 +35,7 @@ export function WeeklyGoalsClient({ goals: initialGoals }: WeeklyGoalsClientProp
           </button>
           <span className={goal.completed ? 'line-through text-gray-400' : ''}>
             {goal.title}
+            {console.log("goal", goal)}
           </span>
         </div>
       ))}
